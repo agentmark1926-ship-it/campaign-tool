@@ -1,3 +1,4 @@
+using Azure.Communication.Email;
 using CampaignTool.Web;
 using CampaignTool.Web.Components;
 using CampaignTool.Web.Data;
@@ -26,6 +27,22 @@ builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(sql, s => s.Enab
 if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
     builder.Services.AddApplicationInsightsTelemetry();
 builder.Services.AddMudServices();
+
+// ACS when configured (Azure); otherwise sends are logged in memory (local runs, tests).
+var acsConnection = builder.Configuration["Acs:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(acsConnection))
+{
+    builder.Services.AddSingleton(new EmailClient(acsConnection));
+    builder.Services.AddSingleton<IEmailSender, AcsEmailSender>();
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender, InMemoryEmailSender>();
+}
+builder.Services.AddScoped<SettingsService>();
+builder.Services.AddScoped<TestEmailService>();
+builder.Services.AddScoped<EventProcessor>();
+
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
@@ -49,6 +66,7 @@ app.UseAntiforgery();
 
 app.MapStaticAssets();
 app.MapHealthEndpoint();
+app.MapAcsWebhookEndpoint();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

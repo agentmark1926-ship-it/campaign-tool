@@ -4,8 +4,8 @@ Maintained by Claude Code. One entry per phase.
 
 | Phase | Status | Verified in Azure | Waiting on owner |
 | --- | --- | --- | --- |
-| 1 Foundation | done except owner sign-in check | deployed, `/health` 200 (2026-09-23) | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
-| 2 ACS and events | not started | | |
+| 1 Foundation | done | deployed, `/health` 200, owner signed in and saw the dashboard (2026-09-23) | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
+| 2 ACS and events | code done, tests green (40) | not yet | merge to `main`; Cloud Shell block for test domain + Event Grid (BLOCKERS) |
 | 3 Contacts | not started | | |
 | 4 Templates and editor | not started | | |
 | 5 Campaigns and sending | not started | | |
@@ -43,6 +43,25 @@ DNS records from the `dnsRecords` output: TXT `ms-domain-verification=36207cd6-f
 
 GitHub Actions deploy: run 35923743337 (attempt 2) built, ran 13 tests against a SQL container, deployed to `ashiwaju-web`, and `/health` returned 200 after ~2.5 minutes of first start (migrations). Attempt 1 failed at `azure/login`: GitHub now sends an ID-based OIDC subject (`repo:agentmark1926-ship-it@329644780/campaign-tool@1383551704:ref:refs/heads/main`), so a second federated credential `github-main-ids` with that subject was added to the `ashiwaju-deploy` app registration.
 
-Still open for Phase 1: owner confirms Entra sign-in at https://ashiwaju-web.azurewebsites.net shows the dashboard.
+Owner signed in at https://ashiwaju-web.azurewebsites.net and saw the dashboard. Phase 1 complete.
 
 Where the code lives: branch `claude/campaign-tool-setup-7gh7yp`. It is not on `main` yet because a push to `main` runs the deploy, which fails until the GitHub secrets exist. Merge once BLOCKERS 1–5 are cleared.
+
+## Phase 2 — ACS and events
+
+Done and verified locally:
+
+- `IEmailSender` with `AcsEmailSender` (Azure.Communication.Email 1.1.0, `SendAsync(WaitUntil.Started)`, one message per recipient; 429/5xx/timeouts reported as transient, other 4xx as permanent) and `InMemoryEmailSender` (used when `Acs:ConnectionString` is empty).
+- Settings page (`/settings`): reply-to, mailing address, time zone, per-minute and per-hour limits; saved to the `Settings` table and overriding App Service configuration; validation messages in one sentence. The From address is shown read-only from `Acs:SenderAddress` because ACS only sends from a MailFrom address provisioned on the domain (it has no per-message display name), so an editable From would only produce failed sends.
+- Test send from Settings: up to five addresses, `[TEST]` subject, mailing-address footer, no recipient rows, never counted.
+- `POST /webhooks/acs?key=…`: constant-time key check, Event Grid validation handshake, every delivery/engagement event stored once in `EmailEvents` (unique `EventId`, duplicates acknowledged), events for unknown messages stored and logged, matched to a recipient by `AcsMessageId` when one exists. Recipient status and campaign counter updates are Phase 6.
+- Settings page shows the 10 most recent delivery reports so the owner can see the Delivered event arrive.
+- `EmailRules` (normalize + syntax-only validation per spec) added now because test sends need it; Phase 3 import reuses it.
+- Bicep: free Azure-managed test domain (`AzureManagedDomain`, `DoNotReply@<id>.azurecomm.net`) linked to ACS and used as the sender until `linkDomain=true`, so sending can be tested before the SiteGround DNS records exist.
+- Fixed: error responses from the webhook now carry a body so the status-code page middleware doesn't rewrite 401 into a 400.
+
+Tests (27 new): email normalization/validation; webhook key rejection, handshake, stored-once delivery event, click URL, ignored event types; settings defaults/save/reload/validation; test email fan-out, footer, and rejection of >5, invalid, and empty input.
+
+Waiting on the owner: merge to `main` (deploy), then the Cloud Shell block in BLOCKERS "Phase 2" (test domain, sender setting, Event Grid subscription), then a test send from Settings to a seed inbox with the Delivered report visible within 2 minutes.
+
+Not built yet (Settings items the spec puts under deliverability): "Check DNS" button — planned with the domain switch.

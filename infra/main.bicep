@@ -4,6 +4,8 @@
 //   az group create -n <rg> -l eastus2
 //   az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam
 //
+// Until linkDomain=true, mail is sent from the free Azure-managed test domain (DoNotReply@<id>.azurecomm.net).
+//
 // Later, flip these parameters and redeploy (each is a separate step because Azure validates them synchronously):
 //   linkDomain=true              after the email domain shows "Verified" in the portal (DNS records added)
 //   createEventSubscription=true after the app is deployed and answering POST /webhooks/acs
@@ -188,6 +190,18 @@ resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' 
   }
 }
 
+// Free Azure-managed test domain (<id>.azurecomm.net): works without DNS, low sending limits.
+// It is the linked sender domain until linkDomain=true switches to the custom domain.
+resource testDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' = {
+  parent: emailService
+  name: 'AzureManagedDomain'
+  location: 'global'
+  properties: {
+    domainManagement: 'AzureManaged'
+    userEngagementTracking: 'Disabled'
+  }
+}
+
 resource senderUser 'Microsoft.Communication/emailServices/domains/senderUsernames@2023-04-01' = if (createSenderUsername) {
   parent: emailDomain
   name: senderUsername
@@ -202,7 +216,7 @@ resource acs 'Microsoft.Communication/communicationServices@2023-04-01' = {
   location: 'global'
   properties: {
     dataLocation: 'United States'
-    linkedDomains: linkDomain ? [ emailDomain.id ] : []
+    linkedDomains: linkDomain ? [ emailDomain.id ] : [ testDomain.id ]
   }
 }
 
@@ -241,7 +255,7 @@ resource web 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'ConnectionStrings__Sql', value: sqlConnectionString }
         { name: 'ConnectionStrings__Storage', value: storageConnectionString }
         { name: 'Acs__ConnectionString', value: acs.listKeys().primaryConnectionString }
-        { name: 'Acs__SenderAddress', value: createSenderUsername ? '${senderUsername}@${senderDomain}' : 'DoNotReply@${senderDomain}' }
+        { name: 'Acs__SenderAddress', value: !linkDomain ? 'DoNotReply@${testDomain.properties.mailFromSenderDomain}' : (createSenderUsername ? '${senderUsername}@${senderDomain}' : 'DoNotReply@${senderDomain}') }
         { name: 'Webhooks__AcsSecret', value: webhookSecret }
         { name: 'Auth__UnsubscribeKey', value: unsubscribeKey }
         { name: 'Auth__AllowedUsers', value: allowedUsers }
@@ -345,5 +359,6 @@ output storageAccountName string = storage.name
 output acsResourceName string = acs.name
 output emailServiceName string = emailService.name
 output senderDomainName string = emailDomain.name
+output testSenderAddress string = 'DoNotReply@${testDomain.properties.mailFromSenderDomain}'
 @description('DNS records to add for the sending subdomain (Domain verification TXT, SPF TXT, DKIM/DKIM2 CNAMEs, DMARC TXT).')
 output dnsRecords object = emailDomain.properties.verificationRecords

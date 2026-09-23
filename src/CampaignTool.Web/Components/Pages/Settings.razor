@@ -1,0 +1,136 @@
+@page "/settings"
+@using CampaignTool.Web.Services
+@inject SettingsService SettingsService
+@inject TestEmailService TestEmail
+@inject ISnackbar Snackbar
+@inject AppDbContext Db
+
+<PageTitle>Settings</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Settings</MudText>
+
+@if (_settings is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+    return;
+}
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sender</MudText>
+    <MudStack Spacing="3">
+        <MudTextField Label="From address" Value="@_settings.SenderAddress" ReadOnly="true" Variant="Variant.Outlined"
+                      HelperText="Set in Azure (Acs:SenderAddress). It must be a MailFrom address on the ACS email domain." />
+        <MudTextField @bind-Value="_settings.ReplyTo" Label="Reply-to" Variant="Variant.Outlined" Required="true"
+                      HelperText="A mailbox someone reads. Replies to campaigns go here." />
+        <MudTextField @bind-Value="_settings.MailingAddress" Label="Mailing address" Variant="Variant.Outlined" Lines="2" Required="true"
+                      HelperText="Printed in every email footer (CAN-SPAM)." />
+        <MudTextField @bind-Value="_settings.TimeZone" Label="Time zone" Variant="Variant.Outlined"
+                      HelperText="IANA name, e.g. America/Chicago. Dates are stored in UTC and shown in this zone." />
+    </MudStack>
+
+    <MudText Typo="Typo.h6" Class="mt-6" GutterBottom="true">Sending limits</MudText>
+    <MudStack Row="true" Spacing="3">
+        <MudNumericField @bind-Value="_settings.MaxPerMinute" Label="Per minute" Min="1" Variant="Variant.Outlined" />
+        <MudNumericField @bind-Value="_settings.MaxPerHour" Label="Per hour" Min="1" Variant="Variant.Outlined" />
+    </MudStack>
+    <MudText Typo="Typo.caption">Keep these under the limits Microsoft granted for ACS Email (defaults 30/min, 100/hour before a quota increase).</MudText>
+
+    @foreach (var error in _errors)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-3">@error</MudAlert>
+    }
+    <div class="mt-4"><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save</MudButton></div>
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Send a test email</MudText>
+    <MudTextField @bind-Value="_testAddresses" Label="To (up to 5, comma-separated)" Variant="Variant.Outlined" />
+    <MudButton Class="mt-3" Variant="Variant.Outlined" Color="Color.Primary" OnClick="SendTestAsync" Disabled="_busy">Send test</MudButton>
+    @if (_busy) { <MudProgressLinear Indeterminate="true" Class="mt-3" /> }
+    @if (_outcomes is not null)
+    {
+        <MudSimpleTable Dense="true" Class="mt-3">
+            <thead><tr><th>Address</th><th>Result</th><th>Message id</th></tr></thead>
+            <tbody>
+                @foreach (var o in _outcomes)
+                {
+                    <tr>
+                        <td>@o.Address</td>
+                        <td>@(o.Result.Success ? "Accepted by ACS" : o.Result.Error)</td>
+                        <td>@o.Result.MessageId</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+<MudPaper Class="pa-4 mt-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center">
+        <MudText Typo="Typo.h6">Recent delivery reports</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" OnClick="LoadEventsAsync" StartIcon="@Icons.Material.Filled.Refresh">Refresh</MudButton>
+    </MudStack>
+    <MudText Typo="Typo.caption">Reports from Azure arrive within a couple of minutes of a send once the Event Grid subscription is on.</MudText>
+    <MudSimpleTable Dense="true" Class="mt-2">
+        <thead><tr><th>Received (@_settings.TimeZone)</th><th>Kind</th><th>Status</th><th>Message id</th></tr></thead>
+        <tbody>
+            @foreach (var e in _events)
+            {
+                <tr><td>@Local(e.OccurredAtUtc)</td><td>@e.Kind</td><td>@e.Status</td><td>@e.AcsMessageId</td></tr>
+            }
+            @if (_events.Count == 0) { <tr><td colspan="4">None yet.</td></tr> }
+        </tbody>
+    </MudSimpleTable>
+</MudPaper>
+
+@code {
+    private EffectiveSettings? _settings;
+    private IReadOnlyList<string> _errors = [];
+    private string _testAddresses = "";
+    private IReadOnlyList<TestEmailService.Outcome>? _outcomes;
+    private bool _busy;
+
+    private List<EmailEvent> _events = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await SettingsService.GetAsync();
+        await LoadEventsAsync();
+    }
+
+    private async Task LoadEventsAsync() =>
+        _events = await Db.EmailEvents.AsNoTracking().OrderByDescending(e => e.Id).Take(10).ToListAsync();
+
+    private string Local(DateTime utc) =>
+        TimeZoneInfo.TryFindSystemTimeZoneById(_settings!.TimeZone, out var tz)
+            ? TimeZoneInfo.ConvertTimeFromUtc(utc, tz).ToString("MMM d, h:mm:ss tt")
+            : utc.ToString("u");
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _errors = await SettingsService.SaveAsync(_settings!);
+        _busy = false;
+        if (_errors.Count == 0) Snackbar.Add("Settings saved.", Severity.Success);
+    }
+
+    private async Task SendTestAsync()
+    {
+        _busy = true;
+        _outcomes = null;
+        try
+        {
+            _outcomes = await TestEmail.SendAsync(_testAddresses, "Campaign tool test",
+                "<p>This is a test email from the campaign tool. If you can read it, sending works.</p>");
+        }
+        catch (ArgumentException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

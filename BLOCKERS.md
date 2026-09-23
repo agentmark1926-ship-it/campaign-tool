@@ -66,3 +66,25 @@ echo "AZURE_CLIENT_ID=$DEPLOY_ID AZURE_TENANT_ID=$TENANT AZURE_SUBSCRIPTION_ID=$
 - [ ] DNS records from the `dnsRecords` output added at your DNS host, plus `_dmarc.<subdomain>` TXT `v=DMARC1; p=none; rua=mailto:dmarc@<yourdomain>` and an MX for the subdomain
 - [ ] Seed inboxes on Outlook, Gmail, Yahoo, iCloud (send me the addresses)
 - [ ] Subscriber CSV available (email column required, everything else optional) — keep it out of the repo
+
+## Phase 2: test domain and delivery events (Cloud Shell, after Phase 2 is deployed)
+
+No code download needed. This links the free Azure test domain, points the app's sender at it, and creates the Event Grid subscription to `/webhooks/acs` (the app must already be running Phase 2 to answer the handshake).
+
+- [ ] Run the block Claude Code gives in chat (also below) and reply with its last line
+- [ ] Send a test email from Settings to your inbox; confirm it arrives and a `Delivered` report shows under "Recent delivery reports"
+
+```bash
+az config set extension.use_dynamic_install=yes_without_prompt -o none
+RG=rg-ashiwaju-app
+DOMAIN_ID=$(az communication email domain create -g $RG --email-service-name ashiwaju-email --domain-name AzureManagedDomain --location global --domain-management AzureManaged --query id -o tsv)
+az communication update -g $RG -n ashiwaju-acs --linked-domains "$DOMAIN_ID" -o none
+FROM="DoNotReply@$(az communication email domain show -g $RG --email-service-name ashiwaju-email --domain-name AzureManagedDomain --query mailFromSenderDomain -o tsv)"
+az webapp config appsettings set -g $RG -n ashiwaju-web --settings "Acs__SenderAddress=$FROM" -o none
+KEY=$(az webapp config appsettings list -g $RG -n ashiwaju-web --query "[?name=='Webhooks__AcsSecret'].value" -o tsv)
+az eventgrid system-topic event-subscription create -g $RG --system-topic-name ashiwaju-acs-events -n email-events \
+  --endpoint "https://ashiwaju-web.azurewebsites.net/webhooks/acs?key=$KEY" \
+  --included-event-types Microsoft.Communication.EmailDeliveryReportReceived Microsoft.Communication.EmailEngagementTrackingReportReceived \
+  --max-delivery-attempts 30 --event-ttl 1440 -o none
+echo "Sender is $FROM; event subscription created"
+```
