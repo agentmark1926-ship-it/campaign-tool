@@ -10,7 +10,13 @@
 
 <MudText Typo="Typo.h4" GutterBottom="true">Import contacts</MudText>
 
-<MudBreadcrumbs Items="Steps" Class="px-0" />
+<MudStack Row="true" Spacing="1" Class="mb-4" AlignItems="AlignItems.Center">
+    @foreach (var (label, i) in StepNames.Select((l, i) => (l, i)))
+    {
+        <MudChip T="string" Size="Size.Small" Disabled="false" Variant="@(i == (int)_step ? Variant.Filled : Variant.Outlined)"
+                 Color="@(i == (int)_step ? Color.Primary : Color.Default)">@($"{i + 1}. {label}")</MudChip>
+    }
+</MudStack>
 
 @if (_error is not null)
 {
@@ -22,7 +28,9 @@
     case Step.Upload:
         <MudPaper Class="pa-6" Elevation="1">
             <MudText Class="mb-4">Choose a .csv or .txt file up to 50 MB. Only an email column is required; a file that is just a list of addresses needs no mapping.</MudText>
-            <InputFile OnChange="UploadAsync" accept=".csv,.txt" disabled="@_busy" />
+            <MudButton HtmlTag="label" for="import-file" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                       StartIcon="@Icons.Material.Filled.UploadFile" Disabled="_busy">Choose file</MudButton>
+            <InputFile id="import-file" OnChange="UploadAsync" accept=".csv,.txt" disabled="@_busy" style="display:none" />
             @if (_busy) { <MudProgressLinear Indeterminate="true" Class="mt-4" /><MudText Typo="Typo.caption">Uploading and reading the file…</MudText> }
         </MudPaper>
         break;
@@ -132,9 +140,7 @@
     private string? _newList;
     private CancellationTokenSource? _poll;
 
-    private List<BreadcrumbItem> Steps =>
-        new[] { "Upload", "Map", "Preview", "Import", "Summary" }
-            .Select((s, i) => new BreadcrumbItem(s, null, disabled: i != (int)_step)).ToList();
+    private static readonly string[] StepNames = ["Upload", "Map", "Preview", "Import", "Summary"];
 
     private int Processed => _import is null ? 0 : _import.Imported + _import.Updated + _import.Skipped + _import.Invalid;
     private double Percent => _preview is null || _preview.TotalRows == 0 ? 0 : 100.0 * Processed / _preview.TotalRows;
