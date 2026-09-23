@@ -5,7 +5,7 @@ Maintained by Claude Code. One entry per phase.
 | Phase | Status | Verified in Azure | Waiting on owner |
 | --- | --- | --- | --- |
 | 1 Foundation | done | deployed, `/health` 200, owner signed in and saw the dashboard (2026-09-23) | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
-| 2 ACS and events | code done, tests green (40) | not yet | merge to `main`; Cloud Shell block for test domain + Event Grid (BLOCKERS) |
+| 2 ACS and events | code done, tests green (40) | deployed; test domain linked; Event Grid handshake passed | test send to an inbox + Delivered report |
 | 3 Contacts | not started | | |
 | 4 Templates and editor | not started | | |
 | 5 Campaigns and sending | not started | | |
@@ -62,6 +62,6 @@ Done and verified locally:
 
 Tests (27 new): email normalization/validation; webhook key rejection, handshake, stored-once delivery event, click URL, ignored event types; settings defaults/save/reload/validation; test email fan-out, footer, and rejection of >5, invalid, and empty input.
 
-Waiting on the owner: merge to `main` (deploy), then the Cloud Shell block in BLOCKERS "Phase 2" (test domain, sender setting, Event Grid subscription), then a test send from Settings to a seed inbox with the Delivered report visible within 2 minutes.
+Deployed (run 35928080845). Owner ran the Cloud Shell block 2026-09-23: test domain linked, sender `DoNotReply@e93c6f02-275f-4e7b-ae0c-b5cd4cd5540f.azurecomm.net`, Event Grid subscription `email-events` created (the validation handshake against `/webhooks/acs` passed). Remaining: the Cloud Shell block in BLOCKERS "Phase 2" (test domain, sender setting, Event Grid subscription), then a test send from Settings to a seed inbox with the Delivered report visible within 2 minutes.
 
 Not built yet (Settings items the spec puts under deliverability): "Check DNS" button — planned with the domain switch.
