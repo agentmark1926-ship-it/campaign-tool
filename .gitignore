@@ -1,0 +1,13 @@
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+*.swp
+publish/
+TestResults/
+appsettings.Development.json
+*.env
+.env*
+infra/*.json
