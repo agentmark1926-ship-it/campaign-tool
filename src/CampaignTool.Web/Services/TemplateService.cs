@@ -16,16 +16,16 @@ public class TemplateService(AppDbContext db, ILogger<TemplateService> log)
     }
 
     /// <summary>Returns an error sentence, or null.</summary>
-    public async Task<string?> SaveAsync(int id, string name, string designJson, string html, CancellationToken ct = default)
+    public async Task<string?> SaveAsync(int id, string name, TemplateFormat format, string body, CancellationToken ct = default)
     {
         name = name.Trim();
         if (name.Length == 0) return "Give the template a name.";
         if (await db.Templates.AnyAsync(t => t.Name == name && t.Id != id, ct)) return $"Another template is already named '{name}'.";
-        if (TemplateRenderer.Validate(html) is { } error) return $"A merge field doesn't parse: {error}";
+        if (TemplateRenderer.Validate(body) is { } error) return $"A merge field doesn't parse: {error}";
         var template = await db.Templates.SingleAsync(t => t.Id == id, ct);
         template.Name = name;
-        template.DesignJson = designJson;
-        template.Html = html;
+        template.Format = format;
+        if (format == TemplateFormat.Html) template.Html = body; else template.Text = body;
         template.UpdatedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
         return null;
@@ -35,7 +35,7 @@ public class TemplateService(AppDbContext db, ILogger<TemplateService> log)
     {
         var source = await db.Templates.AsNoTracking().SingleAsync(t => t.Id == id, ct);
         var now = DateTime.UtcNow;
-        var copy = new Template { Name = await UniqueNameAsync($"{source.Name} (copy)", ct), DesignJson = source.DesignJson, Html = source.Html, CreatedAtUtc = now, UpdatedAtUtc = now };
+        var copy = new Template { Name = await UniqueNameAsync($"{source.Name} (copy)", ct), Format = source.Format, Html = source.Html, Text = source.Text, CreatedAtUtc = now, UpdatedAtUtc = now };
         db.Templates.Add(copy);
         await db.SaveChangesAsync(ct);
         return copy;

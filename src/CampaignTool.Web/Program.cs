@@ -18,6 +18,7 @@ builder.Services.Configure<SendingOptions>(builder.Configuration.GetSection("Sen
 builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection("Import"));
 builder.Services.Configure<RetentionOptions>(builder.Configuration.GetSection("Retention"));
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection("Storage"));
+builder.Services.Configure<AiOptions>(builder.Configuration.GetSection("Ai"));
 
 var sql = builder.Configuration.GetConnectionString("Sql");
 if (string.IsNullOrWhiteSpace(sql))
@@ -48,6 +49,7 @@ builder.Services.AddScoped<ContactImportService>();
 builder.Services.AddScoped<ContactService>();
 builder.Services.AddSingleton<AssetStore>();
 builder.Services.AddScoped<TemplateService>();
+builder.Services.AddSingleton<AiEmailWriter>();
 builder.Services.AddHostedService<CampaignWorker>();
 
 builder.Services.AddRazorComponents()

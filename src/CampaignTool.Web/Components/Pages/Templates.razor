@@ -19,7 +19,7 @@
 }
 else if (_templates.Count == 0)
 {
-    <MudPaper Class="pa-6" Elevation="1"><MudText>No templates yet. Create one to design a reusable email layout.</MudText></MudPaper>
+    <MudPaper Class="pa-6" Elevation="1"><MudText>No templates yet. Create one and paste HTML, write plain text, or let the AI writer draft it.</MudText></MudPaper>
 }
 else
 {
@@ -29,18 +29,18 @@ else
             <MudItem xs="12" sm="6" md="4" lg="3">
                 <MudCard Elevation="1">
                     <div style="height:260px;overflow:hidden;background:#f5f5f5;cursor:pointer" @onclick="@(() => Nav.NavigateTo($"/templates/{t.Id}"))">
-                        @if (string.IsNullOrWhiteSpace(t.Html))
+                        @if (string.IsNullOrWhiteSpace(t.Body))
                         {
-                            <MudText Class="pa-4" Typo="Typo.body2">Empty — open to design.</MudText>
+                            <MudText Class="pa-4" Typo="Typo.body2">Empty — open to write or generate the email.</MudText>
                         }
                         else
                         {
-                            <iframe srcdoc="@Thumbnail(t.Html)" sandbox="" tabindex="-1" title="@t.Name"
+                            <iframe srcdoc="@Thumbnail(t)" sandbox="" tabindex="-1" title="@t.Name"
                                     style="width:640px;height:720px;border:0;transform:scale(0.4);transform-origin:0 0;pointer-events:none"></iframe>
                         }
                     </div>
                     <MudCardContent Class="pb-0">
-                        <MudText Typo="Typo.subtitle1">@t.Name</MudText>
+                        <MudText Typo="Typo.subtitle1">@t.Name <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@(t.Format == TemplateFormat.Html ? "HTML" : "Plain text")</MudChip></MudText>
                         <MudText Typo="Typo.caption">Updated @TimeFormat.Local(t.UpdatedAtUtc, _tz)</MudText>
                     </MudCardContent>
                     <MudCardActions>
@@ -66,10 +66,15 @@ else
         await LoadAsync();
     }
 
-    private static string Thumbnail(string html)
+    private static string Thumbnail(Template t)
     {
-        try { return TemplateRenderer.RenderHtml(html, TemplateRenderer.SampleNamed); }
-        catch (InvalidOperationException) { return html; }
+        try
+        {
+            return t.Format == TemplateFormat.Text
+                ? TemplateRenderer.TextToHtml(TemplateRenderer.RenderText(t.Text, TemplateRenderer.SampleNamed))
+                : TemplateRenderer.RenderHtml(t.Html, TemplateRenderer.SampleNamed);
+        }
+        catch (InvalidOperationException) { return t.Body; }
     }
 
     private async Task LoadAsync() => _templates = await Db.Templates.AsNoTracking().OrderByDescending(t => t.UpdatedAtUtc).ToListAsync();

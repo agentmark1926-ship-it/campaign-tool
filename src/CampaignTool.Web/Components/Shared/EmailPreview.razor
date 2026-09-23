@@ -19,11 +19,13 @@
 </MudStack>
 @if (_error is not null) { <MudAlert Severity="Severity.Warning" Class="mb-2">@_error</MudAlert> }
 <MudText Typo="Typo.subtitle2" Class="mb-1">Subject: @_subject</MudText>
-<iframe srcdoc="@_html" sandbox="" title="Email preview" style="width:@(_width)px;max-width:100%;height:720px;border:1px solid #e0e0e0;background:#fff"></iframe>
+<iframe srcdoc="@_html" sandbox="" title="Email preview" style="width:@(_width)px;max-width:100%;height:@(Height)px;border:1px solid #e0e0e0;background:#fff"></iframe>
 
 @code {
     [Parameter] public string Subject { get; set; } = "";
     [Parameter] public string Html { get; set; } = "";
+    [Parameter] public int Height { get; set; } = 720;
+    [Parameter] public TemplateFormat Format { get; set; } = TemplateFormat.Html;
 
     private int _width = 640;
     private string _who = "named";
@@ -47,7 +49,9 @@
         try
         {
             _subject = TemplateRenderer.RenderText(Subject, contact);
-            _html = TemplateRenderer.RenderHtml(Html, contact);
+            _html = Format == TemplateFormat.Text
+                ? TemplateRenderer.TextToHtml(TemplateRenderer.RenderText(Html, contact))
+                : TemplateRenderer.RenderHtml(Html, contact);
         }
         catch (InvalidOperationException ex)
         {

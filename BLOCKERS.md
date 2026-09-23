@@ -88,3 +88,9 @@ az eventgrid system-topic event-subscription create -g $RG --system-topic-name a
   --max-delivery-attempts 30 --event-ttl 1440 -o none
 echo "Sender is $FROM; event subscription created"
 ```
+
+## AI writer: Anthropic API key
+
+- [ ] Create an API key at console.anthropic.com → API keys (and set a monthly spend limit under Billing). Then in Cloud Shell, without sending the key to anyone:
+  `az webapp config appsettings set -g rg-ashiwaju-app -n ashiwaju-web --settings "Ai__AnthropicApiKey=<paste key>" -o none`
+  For future infrastructure redeploys also `export ANTHROPIC_API_KEY=<key>` so the Bicep keeps it.

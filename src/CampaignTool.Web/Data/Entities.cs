@@ -10,6 +10,8 @@ public enum RecipientStatus { Pending, Claimed, Sent, Delivered, Bounced, Failed
 
 public enum EmailEventKind { Delivery, Engagement }
 
+public enum TemplateFormat { Html, Text }
+
 public enum ImportStatus { Uploaded, Queued, Processing, Completed, Failed }
 
 public class Contact
@@ -66,10 +68,17 @@ public class Template
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
+    public TemplateFormat Format { get; set; } = TemplateFormat.Html;
+    /// <summary>Unused since the drag-and-drop editor was replaced by HTML / plain-text editing; kept for existing rows.</summary>
     public string DesignJson { get; set; } = "";
+    /// <summary>The body when Format is Html.</summary>
     public string Html { get; set; } = "";
+    /// <summary>The body when Format is Text.</summary>
+    public string Text { get; set; } = "";
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
+
+    public string Body => Format == TemplateFormat.Html ? Html : Text;
 }
 
 public class Campaign

@@ -62,6 +62,20 @@ public static partial class TemplateRenderer
     // Visual editors store quotes inside text as &quot;; decode only inside {{ }} so the tag parses.
     private static string DecodeTags(string template) => Tag().Replace(template ?? "", m => WebUtility.HtmlDecode(m.Value));
 
+    /// <summary>A plain-text letter as simple, readable HTML (encoded, paragraphs and line breaks kept, links clickable).</summary>
+    public static string TextToHtml(string text)
+    {
+        var encoded = WebUtility.HtmlEncode(text.Replace("\r\n", "\n").Trim());
+        encoded = Url().Replace(encoded, m => $"<a href=\"{m.Value}\">{m.Value}</a>");
+        var paragraphs = encoded.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => $"<p style=\"margin:0 0 16px\">{p.Trim().Replace("\n", "<br/>")}</p>");
+        return "<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:600px\">"
+            + string.Concat(paragraphs) + "</div>";
+    }
+
+    [GeneratedRegex(@"https?://[^\s<]+[^\s<.,;:!?)]")]
+    private static partial Regex Url();
+
     /// <summary>Sample contacts for previews: one with a name, one email-only.</summary>
     public static Contact SampleNamed => new() { Email = "ann.lee@example.com", FirstName = "Ann", LastName = "Lee", CustomFields = "{}" };
     public static Contact SampleEmailOnly => new() { Email = "subscriber@example.com", CustomFields = "{}" };

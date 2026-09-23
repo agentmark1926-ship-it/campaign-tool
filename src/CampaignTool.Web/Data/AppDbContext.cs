@@ -60,6 +60,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         b.Entity<Template>(e =>
         {
+            e.Ignore(x => x.Body);
             e.Property(x => x.Name).HasMaxLength(200);
             e.HasIndex(x => x.Name).IsUnique();
         });

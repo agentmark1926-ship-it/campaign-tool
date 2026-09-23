@@ -48,6 +48,10 @@ param webhookSecret string
 @description('Random string (32+ chars) used to sign unsubscribe tokens.')
 param unsubscribeKey string
 
+@secure()
+@description('Anthropic API key for the AI email writer (optional; the writer is disabled without it).')
+param anthropicApiKey string = ''
+
 @description('Sending subdomain, e.g. news.yourdomain.com')
 param senderDomain string
 
@@ -269,6 +273,7 @@ resource web 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'Retention__EventMonths', value: '12' }
         { name: 'Storage__PublicContainer', value: 'email-assets' }
         { name: 'Storage__UploadsContainer', value: 'imports' }
+        { name: 'Ai__AnthropicApiKey', value: anthropicApiKey }
         { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: entraClientSecret }
         { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
       ]

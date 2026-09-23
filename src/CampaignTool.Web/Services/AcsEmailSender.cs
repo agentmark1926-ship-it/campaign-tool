@@ -11,7 +11,7 @@ public class AcsEmailSender(EmailClient client, IOptions<AcsOptions> acs, ILogge
         var message = new EmailMessage(
             senderAddress: acs.Value.SenderAddress,
             recipientAddress: email.To,
-            content: new EmailContent(email.Subject) { Html = email.Html });
+            content: new EmailContent(email.Subject) { Html = email.Html, PlainText = email.PlainText });
 
         if (!string.IsNullOrWhiteSpace(email.ReplyTo))
             message.ReplyTo.Add(new EmailAddress(email.ReplyTo));

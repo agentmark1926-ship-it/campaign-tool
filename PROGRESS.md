@@ -7,7 +7,7 @@ Maintained by Claude Code. One entry per phase.
 | 1 Foundation | done | deployed, `/health` 200, owner signed in and saw the dashboard (2026-09-23) | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
 | 2 ACS and events | done | test send from Settings reached the owner's inbox; Delivered report stored and shown (2026-09-23) | |
 | 3 Contacts | done in code; deployed (run 35931498833) | deployed | import the real subscriber file and confirm counts |
-| 4 Templates and editor | code done, tests green (64) | not yet | merge; confirm the Unlayer editor loads in your browser; test send from the editor |
+| 4 Templates and editor | reworked per owner: HTML / plain text + AI writer; tests green (71) | not yet | merge; add the Anthropic API key; test send from the editor |
 | 5 Campaigns and sending | not started | | |
 | 6 Results and unsubscribe | not started | | |
 | 7 Hardening | not started | | |
@@ -101,3 +101,16 @@ Done and verified locally:
 Verification note: this build environment cannot reach editor.unlayer.com (outbound policy), so the browser walk-through ran with a stand-in for the Unlayer script that implements the same calls (createEditor, loadDesign, exportHtml, registerCallback). It confirmed: create → edit → save → preview shows "Hi Ann" for the named sample and "Hi there" for the email-only sample → test send accepted → reload restores the saved design, with no circuit errors; and that a blocked editor script shows a one-sentence error instead of a blank page. **The real Unlayer editor loading in the owner's browser is the open acceptance check.** If Unlayer's free embed turns out to be unavailable, the spec's fallback (GrapesJS newsletter preset) replaces only `editor.js`.
 
 Tests (8 new): name renders, fallback for email-only, HTML encoding of every value, plain-text subject, unknown field empty, custom field in snake_case, editor-encoded quotes, broken tag reported.
+
+### Phase 4 change (owner decision, 2026-09-23): no drag-and-drop editor
+
+The owner reviewed the Unlayer editor and asked instead for templates that are either raw HTML or plain text, plus an AI that can write either. This replaces SPEC "Decisions already made → Editor" (Unlayer / GrapesJS):
+
+- `Templates.Format` (`Html` | `Text`) and `Templates.Text` added (migration `Phase4_TemplateFormat`; existing rows default to `Html`). `DesignJson` is no longer written.
+- Editor page: format toggle, a monospace HTML box or a plain-text box, live desktop/mobile preview with merge fields, image upload that returns a public URL to paste into `<img src>`, and the test send.
+- Plain-text letters are sent with both parts: the text as `PlainText` and a simple, encoded HTML rendition (paragraphs, line breaks, clickable links). Footer added to both.
+- AI writer (`AiEmailWriter`): Anthropic C# SDK 12.50, model `claude-opus-5`, server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`). Writes a new email or revises the current one from a description; the system prompt enforces email-safe HTML (table layout, inline CSS, no scripts), Liquid merge fields with the "there" fallback, no footer/unsubscribe (added at send), and bracketed placeholders instead of invented facts. Roughly $0.05–0.10 per draft at $5/$25 per million tokens. Disabled with a one-line explanation when `Ai:AnthropicApiKey` is empty.
+- Removed: `wwwroot/js/editor.js`, the `EmailEditor` component, the editor's image-upload endpoint. The app now has no custom JavaScript.
+- Bicep: `anthropicApiKey` secure parameter → `Ai__AnthropicApiKey` app setting (from `ANTHROPIC_API_KEY` in `main.bicepparam`), so a later infrastructure redeploy keeps the key.
+
+Tests (7 new): the AI request (model, fallbacks, HTML vs text rules, revise includes the current body), code-fence stripping, refusal message, missing-key message; plain-text rendering and the two-part test send; template format save/validate.

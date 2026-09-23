@@ -5,6 +5,7 @@ public record OutgoingEmail(
     string Subject,
     string Html,
     string? ReplyTo = null,
+    string? PlainText = null,
     IReadOnlyDictionary<string, string>? Headers = null);
 
 /// <summary>Transient = retry later (429, 5xx, timeout). Not transient and not success = the address was rejected.</summary>

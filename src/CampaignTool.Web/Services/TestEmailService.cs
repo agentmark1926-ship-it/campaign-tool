@@ -15,7 +15,7 @@ public class TestEmailService(IEmailSender sender, SettingsService settings, App
     /// Merge fields are rendered per address with that contact's data, or as an email-only contact when the address isn't a contact.
     /// Throws ArgumentException with a one-sentence reason when the request cannot be sent.
     /// </summary>
-    public async Task<IReadOnlyList<Outcome>> SendAsync(string addresses, string subject, string html, CancellationToken ct = default)
+    public async Task<IReadOnlyList<Outcome>> SendAsync(string addresses, string subject, string body, TemplateFormat format = TemplateFormat.Html, CancellationToken ct = default)
     {
         var list = addresses.Split([',', ';', '\n', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(EmailRules.Normalize).Distinct().ToList();
@@ -29,7 +29,7 @@ public class TestEmailService(IEmailSender sender, SettingsService settings, App
             throw new ArgumentException("Set the mailing address in Settings first; every email must include it.");
 
         if (TemplateRenderer.Validate(subject) is { } subjectError) throw new ArgumentException($"The subject's merge field doesn't parse: {subjectError}");
-        if (TemplateRenderer.Validate(html) is { } htmlError) throw new ArgumentException($"A merge field doesn't parse: {htmlError}");
+        if (TemplateRenderer.Validate(body) is { } bodyError) throw new ArgumentException($"A merge field doesn't parse: {bodyError}");
 
         var footer = $"<hr/><p style=\"font-size:12px;color:#666\">{WebUtility.HtmlEncode(s.MailingAddress)}<br/>This is a test email; it is not counted in campaign results.</p>";
         var contacts = await db.Contacts.AsNoTracking().Where(c => list.Contains(c.EmailNormalized)).ToDictionaryAsync(c => c.EmailNormalized, ct);
@@ -37,10 +37,18 @@ public class TestEmailService(IEmailSender sender, SettingsService settings, App
         foreach (var address in list)
         {
             var contact = contacts.GetValueOrDefault(address) ?? new Contact { Email = address, EmailNormalized = address };
-            var email = new OutgoingEmail(address,
-                $"[TEST] {TemplateRenderer.RenderText(subject, contact)}",
-                TemplateRenderer.RenderHtml(html, contact) + footer,
-                s.ReplyTo);
+            var renderedSubject = $"[TEST] {TemplateRenderer.RenderText(subject, contact)}";
+            OutgoingEmail email;
+            if (format == TemplateFormat.Text)
+            {
+                var text = TemplateRenderer.RenderText(body, contact);
+                email = new OutgoingEmail(address, renderedSubject, TemplateRenderer.TextToHtml(text) + footer, s.ReplyTo,
+                    PlainText: $"{text}\n\n--\n{s.MailingAddress}\nThis is a test email; it is not counted in campaign results.");
+            }
+            else
+            {
+                email = new OutgoingEmail(address, renderedSubject, TemplateRenderer.RenderHtml(body, contact) + footer, s.ReplyTo);
+            }
             outcomes.Add(new Outcome(address, await sender.SendAsync(email, ct)));
         }
         log.LogInformation("Test email sent: {Accepted} of {Total} accepted by the provider", outcomes.Count(o => o.Result.Success), outcomes.Count);

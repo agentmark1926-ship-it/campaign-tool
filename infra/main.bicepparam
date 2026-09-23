@@ -1,5 +1,5 @@
 // Fill in the placeholders. Secrets come from environment variables (never commit real values):
-//   export SQL_ADMIN_PASSWORD=... ENTRA_CLIENT_SECRET=... WEBHOOK_SECRET=... UNSUBSCRIBE_KEY=...
+//   export SQL_ADMIN_PASSWORD=... ENTRA_CLIENT_SECRET=... WEBHOOK_SECRET=... UNSUBSCRIBE_KEY=... ANTHROPIC_API_KEY=...
 //   az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam
 using './main.bicep'
 
@@ -21,3 +21,4 @@ param sqlAdminPassword = readEnvironmentVariable('SQL_ADMIN_PASSWORD', '')
 param entraClientSecret = readEnvironmentVariable('ENTRA_CLIENT_SECRET', '')
 param webhookSecret = readEnvironmentVariable('WEBHOOK_SECRET', '')
 param unsubscribeKey = readEnvironmentVariable('UNSUBSCRIBE_KEY', '')
+param anthropicApiKey = readEnvironmentVariable('ANTHROPIC_API_KEY', '')

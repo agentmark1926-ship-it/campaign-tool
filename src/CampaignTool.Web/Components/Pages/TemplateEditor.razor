@@ -3,6 +3,9 @@
 @inject AppDbContext Db
 @inject TemplateService TemplateService
 @inject TestEmailService TestEmail
+@inject AiEmailWriter Ai
+@inject AssetStore ImageStore
+@inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 
 <PageTitle>@(_template?.Name ?? "Template")</PageTitle>
@@ -14,29 +17,81 @@
 }
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
-    <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" Style="max-width:420px" />
+    <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" Style="max-width:360px" />
+    <MudToggleGroup T="TemplateFormat" Value="_format" ValueChanged="FormatChangedAsync" Color="Color.Primary" SelectionMode="SelectionMode.SingleSelection">
+        <MudToggleItem Value="TemplateFormat.Html" Text="HTML" />
+        <MudToggleItem Value="TemplateFormat.Text" Text="Plain text" />
+    </MudToggleGroup>
     <MudSpacer />
     <MudButton Href="/templates" Variant="Variant.Text">Back</MudButton>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save</MudButton>
 </MudStack>
 
-<MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true" ActivePanelIndexChanged="TabChangedAsync">
-    <MudTabPanel Text="Design">
-        <MudText Typo="Typo.caption" Class="mb-2">Use the Merge Tags menu in a text block to insert first name (falls back to "there"), last name or email. The mailing address and unsubscribe link are added to every send automatically.</MudText>
-        <EmailEditor @ref="_editor" DesignJson="@_template.DesignJson" />
-    </MudTabPanel>
-    <MudTabPanel Text="Preview">
-        <EmailPreview Subject="@_testSubject" Html="@_previewHtml" />
-    </MudTabPanel>
-    <MudTabPanel Text="Send test">
-        <MudStack Spacing="3" Style="max-width:640px">
-            <MudTextField @bind-Value="_testSubject" Label="Subject" Variant="Variant.Outlined" HelperText="Merge fields work here too." />
-            <MudTextField @bind-Value="_testAddresses" Label="To (up to 5, comma-separated)" Variant="Variant.Outlined" />
-            <div><MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="SendTestAsync" Disabled="_busy">Send test</MudButton></div>
-            @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Primary" />
+        <MudText Typo="Typo.h6">AI writer</MudText>
+    </MudStack>
+    @if (!Ai.IsConfigured)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">The AI writer needs an Anthropic API key in Azure (setting <b>Ai__AnthropicApiKey</b>). You can still paste HTML or write text yourself.</MudAlert>
+    }
+    <MudTextField @bind-Value="_instruction" Label="@(string.IsNullOrWhiteSpace(_body) ? "Describe the email you want" : "Describe the email, or the change to make")"
+                  Placeholder="e.g. Announce our new climate-controlled units at the Miami Brickell facility, 20% off the first month for signups before [DATE], with a Reserve now button linking to [LINK]."
+                  Variant="Variant.Outlined" Lines="3" Disabled="_aiBusy" />
+    <MudStack Row="true" Spacing="2" Class="mt-2" AlignItems="AlignItems.Center">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => WriteAsync(revise: false))" Disabled="_aiBusy || !Ai.IsConfigured">
+            Write @(_format == TemplateFormat.Html ? "HTML" : "plain-text") email
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => WriteAsync(revise: true))" Disabled="_aiBusy || !Ai.IsConfigured || string.IsNullOrWhiteSpace(_body)">Revise current</MudButton>
+        @if (_aiBusy) { <MudText Typo="Typo.caption">Writing… this usually takes 20–60 seconds.</MudText> }
+    </MudStack>
+    @if (_aiBusy) { <MudProgressLinear Indeterminate="true" Class="mt-2" /> }
+    <MudText Typo="Typo.caption" Class="mt-2 d-block">Always read the draft before sending. Anything in [SQUARE BRACKETS] is a placeholder for you to fill in.</MudText>
+</MudPaper>
+
+<MudGrid>
+    <MudItem xs="12" lg="6">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                <MudText Typo="Typo.h6">@(_format == TemplateFormat.Html ? "HTML" : "Plain text")</MudText>
+                <MudSpacer />
+                @if (_format == TemplateFormat.Html)
+                {
+                    <MudButton HtmlTag="label" for="image-upload" Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Image">Upload image</MudButton>
+                    <InputFile id="image-upload" OnChange="UploadImageAsync" accept=".png,.jpg,.jpeg,.gif,.webp" style="display:none" />
+                }
+            </MudStack>
+            @if (_imageUrl is not null)
+            {
+                <MudAlert Severity="Severity.Success" Dense="true" Class="mb-2">Image uploaded. Use this address in an &lt;img src="…"&gt;: <code>@_imageUrl</code></MudAlert>
+            }
+            <MudTextField T="string" Value="_body" ValueChanged="BodyChanged" Variant="Variant.Outlined" Lines="28" DebounceInterval="600"
+                          Placeholder="@(_format == TemplateFormat.Html ? "Paste or write HTML here…" : "Write your letter here…")"
+                          Style="@(_format == TemplateFormat.Html ? "font-family:Consolas,Menlo,monospace;font-size:13px" : "")" />
+            <MudText Typo="Typo.caption">
+                Merge fields: <code>{{ first_name | default: "there" }}</code>, <code>{{ last_name }}</code>, <code>{{ email }}</code>, and custom fields such as <code>{{ unit_size }}</code>.
+                The mailing address and unsubscribe link are added to every send automatically.
+            </MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" lg="6">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" Class="mb-2">Preview</MudText>
+            <EmailPreview Subject="@_testSubject" Html="@_body" Format="_format" Height="640" />
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" Class="mb-2">Send a test</MudText>
+            <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+                <MudTextField @bind-Value="_testSubject" Label="Subject" Variant="Variant.Outlined" HelperText="Merge fields work here too." />
+                <MudTextField @bind-Value="_testAddresses" Label="To (up to 5, comma-separated)" Variant="Variant.Outlined" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="SendTestAsync" Disabled="_busy">Send test</MudButton>
+            </MudStack>
             @if (_outcomes is not null)
             {
-                <MudSimpleTable Dense="true">
+                <MudSimpleTable Dense="true" Class="mt-2">
                     <thead><tr><th>Address</th><th>Result</th></tr></thead>
                     <tbody>
                         @foreach (var o in _outcomes)
@@ -46,17 +101,18 @@
                     </tbody>
                 </MudSimpleTable>
             }
-        </MudStack>
-    </MudTabPanel>
-</MudTabs>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
 
 @code {
     [Parameter] public int Id { get; set; }
 
     private Template? _template;
-    private bool _loaded, _busy;
-    private EmailEditor? _editor;
-    private string _name = "", _previewHtml = "", _testSubject = "", _testAddresses = "";
+    private bool _loaded, _busy, _aiBusy;
+    private TemplateFormat _format;
+    private string _name = "", _body = "", _instruction = "", _testSubject = "", _testAddresses = "";
+    private string? _imageUrl;
     private IReadOnlyList<TestEmailService.Outcome>? _outcomes;
 
     protected override async Task OnParametersSetAsync()
@@ -65,21 +121,43 @@
         _loaded = true;
         if (_template is null) return;
         _name = _template.Name;
-        _previewHtml = _template.Html;
+        _format = _template.Format;
+        _body = _template.Body;
         _testSubject = $"Hi {{{{ first_name | default: \"there\" }}}}: {_template.Name}";
     }
 
-    /// <summary>Pulls the latest design out of the editor (the editor stays mounted while other tabs show).</summary>
-    private async Task<EmailEditor.Export?> CurrentAsync()
+    private void BodyChanged(string v) => _body = v ?? "";
+
+    private async Task FormatChangedAsync(TemplateFormat format)
     {
-        var export = _editor is null ? null : await _editor.ExportAsync();
-        if (export is not null) _previewHtml = export.Html;
-        return export;
+        if (format == _format) return;
+        if (!string.IsNullOrWhiteSpace(_body) &&
+            await Dialogs.ShowMessageBoxAsync("Switch format", "Switching keeps the current content as-is; HTML tags will show as text in a plain-text letter. Use the AI writer's Revise to convert it. Switch?", "Switch", cancelText: "Cancel") != true)
+            return;
+        _format = format;
     }
 
-    private async Task TabChangedAsync(int index)
+    private async Task WriteAsync(bool revise)
     {
-        if (index > 0) await CurrentAsync();
+        _aiBusy = true;
+        try
+        {
+            _body = await Ai.WriteAsync(_format, _instruction, revise ? _body : null);
+            Snackbar.Add("Draft ready. Review it, fill in any [PLACEHOLDERS], then Save.", Severity.Success);
+        }
+        catch (InvalidOperationException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+        finally { _aiBusy = false; }
+    }
+
+    private async Task UploadImageAsync(InputFileChangeEventArgs e)
+    {
+        if (e.File.Size > AssetStore.MaxImageBytes) { Snackbar.Add("Images must be 5 MB or smaller.", Severity.Warning); return; }
+        try
+        {
+            await using var stream = e.File.OpenReadStream(AssetStore.MaxImageBytes);
+            _imageUrl = await ImageStore.SaveImageAsync(e.File.Name, stream);
+        }
+        catch (ArgumentException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
     }
 
     private async Task SaveAsync()
@@ -87,9 +165,7 @@
         _busy = true;
         try
         {
-            var export = await CurrentAsync();
-            if (export is null) { Snackbar.Add("The editor isn't ready yet; wait for it to load and try again.", Severity.Warning); return; }
-            if (await TemplateService.SaveAsync(Id, _name, export.Design, export.Html) is { } error) { Snackbar.Add(error, Severity.Warning); return; }
+            if (await TemplateService.SaveAsync(Id, _name, _format, _body) is { } error) { Snackbar.Add(error, Severity.Warning); return; }
             Snackbar.Add("Template saved.", Severity.Success);
         }
         finally { _busy = false; }
@@ -99,11 +175,7 @@
     {
         _busy = true;
         _outcomes = null;
-        try
-        {
-            await CurrentAsync();
-            _outcomes = await TestEmail.SendAsync(_testAddresses, _testSubject, _previewHtml);
-        }
+        try { _outcomes = await TestEmail.SendAsync(_testAddresses, _testSubject, _body, _format); }
         catch (ArgumentException ex) { Snackbar.Add(ex.Message, Severity.Error); }
         finally { _busy = false; }
     }
