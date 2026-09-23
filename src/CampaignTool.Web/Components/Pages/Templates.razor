@@ -1,0 +1,91 @@
+@page "/templates"
+@using CampaignTool.Web.Services
+@inject AppDbContext Db
+@inject TemplateService TemplateService
+@inject IDialogService Dialogs
+@inject NavigationManager Nav
+
+<PageTitle>Templates</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Templates</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NewAsync">New template</MudButton>
+</MudStack>
+
+@if (_templates is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_templates.Count == 0)
+{
+    <MudPaper Class="pa-6" Elevation="1"><MudText>No templates yet. Create one to design a reusable email layout.</MudText></MudPaper>
+}
+else
+{
+    <MudGrid>
+        @foreach (var t in _templates)
+        {
+            <MudItem xs="12" sm="6" md="4" lg="3">
+                <MudCard Elevation="1">
+                    <div style="height:260px;overflow:hidden;background:#f5f5f5;cursor:pointer" @onclick="@(() => Nav.NavigateTo($"/templates/{t.Id}"))">
+                        @if (string.IsNullOrWhiteSpace(t.Html))
+                        {
+                            <MudText Class="pa-4" Typo="Typo.body2">Empty — open to design.</MudText>
+                        }
+                        else
+                        {
+                            <iframe srcdoc="@Thumbnail(t.Html)" sandbox="" tabindex="-1" title="@t.Name"
+                                    style="width:640px;height:720px;border:0;transform:scale(0.4);transform-origin:0 0;pointer-events:none"></iframe>
+                        }
+                    </div>
+                    <MudCardContent Class="pb-0">
+                        <MudText Typo="Typo.subtitle1">@t.Name</MudText>
+                        <MudText Typo="Typo.caption">Updated @TimeFormat.Local(t.UpdatedAtUtc, _tz)</MudText>
+                    </MudCardContent>
+                    <MudCardActions>
+                        <MudButton Size="Size.Small" Href="@($"/templates/{t.Id}")">Edit</MudButton>
+                        <MudButton Size="Size.Small" OnClick="@(() => DuplicateAsync(t.Id))">Duplicate</MudButton>
+                        <MudSpacer />
+                        <MudIconButton Size="Size.Small" Color="Color.Error" Icon="@Icons.Material.Filled.Delete" OnClick="@(() => DeleteAsync(t))" />
+                    </MudCardActions>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    [Inject] private SettingsService SettingsService { get; set; } = null!;
+    private List<Template>? _templates;
+    private string _tz = "UTC";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tz = (await SettingsService.GetAsync()).TimeZone;
+        await LoadAsync();
+    }
+
+    private static string Thumbnail(string html)
+    {
+        try { return TemplateRenderer.RenderHtml(html, TemplateRenderer.SampleNamed); }
+        catch (InvalidOperationException) { return html; }
+    }
+
+    private async Task LoadAsync() => _templates = await Db.Templates.AsNoTracking().OrderByDescending(t => t.UpdatedAtUtc).ToListAsync();
+
+    private async Task NewAsync() => Nav.NavigateTo($"/templates/{(await TemplateService.CreateAsync()).Id}");
+
+    private async Task DuplicateAsync(int id)
+    {
+        await TemplateService.DuplicateAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Template t)
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Delete template", $"Delete '{t.Name}'? Campaigns already made from it keep their own copy.", "Delete", cancelText: "Cancel") != true) return;
+        await TemplateService.DeleteAsync(t.Id);
+        await LoadAsync();
+    }
+}

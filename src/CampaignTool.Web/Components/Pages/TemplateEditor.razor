@@ -1,0 +1,110 @@
+@page "/templates/{Id:int}"
+@using CampaignTool.Web.Services
+@inject AppDbContext Db
+@inject TemplateService TemplateService
+@inject TestEmailService TestEmail
+@inject ISnackbar Snackbar
+
+<PageTitle>@(_template?.Name ?? "Template")</PageTitle>
+
+@if (_template is null)
+{
+    <MudText>@(_loaded ? "This template no longer exists." : "")</MudText>
+    return;
+}
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
+    <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" Style="max-width:420px" />
+    <MudSpacer />
+    <MudButton Href="/templates" Variant="Variant.Text">Back</MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Save</MudButton>
+</MudStack>
+
+<MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true" ActivePanelIndexChanged="TabChangedAsync">
+    <MudTabPanel Text="Design">
+        <MudText Typo="Typo.caption" Class="mb-2">Use the Merge Tags menu in a text block to insert first name (falls back to "there"), last name or email. The mailing address and unsubscribe link are added to every send automatically.</MudText>
+        <EmailEditor @ref="_editor" DesignJson="@_template.DesignJson" />
+    </MudTabPanel>
+    <MudTabPanel Text="Preview">
+        <EmailPreview Subject="@_testSubject" Html="@_previewHtml" />
+    </MudTabPanel>
+    <MudTabPanel Text="Send test">
+        <MudStack Spacing="3" Style="max-width:640px">
+            <MudTextField @bind-Value="_testSubject" Label="Subject" Variant="Variant.Outlined" HelperText="Merge fields work here too." />
+            <MudTextField @bind-Value="_testAddresses" Label="To (up to 5, comma-separated)" Variant="Variant.Outlined" />
+            <div><MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="SendTestAsync" Disabled="_busy">Send test</MudButton></div>
+            @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+            @if (_outcomes is not null)
+            {
+                <MudSimpleTable Dense="true">
+                    <thead><tr><th>Address</th><th>Result</th></tr></thead>
+                    <tbody>
+                        @foreach (var o in _outcomes)
+                        {
+                            <tr><td>@o.Address</td><td>@(o.Result.Success ? "Accepted" : o.Result.Error)</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudStack>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Template? _template;
+    private bool _loaded, _busy;
+    private EmailEditor? _editor;
+    private string _name = "", _previewHtml = "", _testSubject = "", _testAddresses = "";
+    private IReadOnlyList<TestEmailService.Outcome>? _outcomes;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _template = await Db.Templates.AsNoTracking().SingleOrDefaultAsync(t => t.Id == Id);
+        _loaded = true;
+        if (_template is null) return;
+        _name = _template.Name;
+        _previewHtml = _template.Html;
+        _testSubject = $"Hi {{{{ first_name | default: \"there\" }}}}: {_template.Name}";
+    }
+
+    /// <summary>Pulls the latest design out of the editor (the editor stays mounted while other tabs show).</summary>
+    private async Task<EmailEditor.Export?> CurrentAsync()
+    {
+        var export = _editor is null ? null : await _editor.ExportAsync();
+        if (export is not null) _previewHtml = export.Html;
+        return export;
+    }
+
+    private async Task TabChangedAsync(int index)
+    {
+        if (index > 0) await CurrentAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            var export = await CurrentAsync();
+            if (export is null) { Snackbar.Add("The editor isn't ready yet; wait for it to load and try again.", Severity.Warning); return; }
+            if (await TemplateService.SaveAsync(Id, _name, export.Design, export.Html) is { } error) { Snackbar.Add(error, Severity.Warning); return; }
+            Snackbar.Add("Template saved.", Severity.Success);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SendTestAsync()
+    {
+        _busy = true;
+        _outcomes = null;
+        try
+        {
+            await CurrentAsync();
+            _outcomes = await TestEmail.SendAsync(_testAddresses, _testSubject, _previewHtml);
+        }
+        catch (ArgumentException ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+}

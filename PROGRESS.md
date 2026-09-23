@@ -6,8 +6,8 @@ Maintained by Claude Code. One entry per phase.
 | --- | --- | --- | --- |
 | 1 Foundation | done | deployed, `/health` 200, owner signed in and saw the dashboard (2026-09-23) | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
 | 2 ACS and events | done | test send from Settings reached the owner's inbox; Delivered report stored and shown (2026-09-23) | |
-| 3 Contacts | code done, tests green (56) | not yet | merge to `main`; import the real subscriber file |
-| 4 Templates and editor | not started | | |
+| 3 Contacts | done in code; deployed (run 35931498833) | deployed | import the real subscriber file and confirm counts |
+| 4 Templates and editor | code done, tests green (64) | not yet | merge; confirm the Unlayer editor loads in your browser; test send from the editor |
 | 5 Campaigns and sending | not started | | |
 | 6 Results and unsubscribe | not started | | |
 | 7 Hardening | not started | | |
@@ -85,3 +85,19 @@ Done and verified locally (tests plus a browser walk-through of the import wizar
 Tests (16 new): CSV detection (one column with/without header, semicolon, tab, quoted fields, Excel BOM + CRLF, header fallback, default mapping), export injection, 10,000-row one-column import under 2 minutes with exact Imported/Skipped/Invalid counts, re-import updates fields but never status, suppressed address stays unsubscribed, multi-column mapping with custom fields and a new list, rejects with row numbers, unsubscribe/resubscribe/suppression rules, sendable count.
 
 Waiting on the owner: merge to `main`, then import the real subscriber file and check the counts.
+
+## Phase 4 — Templates and editor
+
+Done and verified locally:
+
+- Templates page (`/templates`): card grid with live thumbnails (the HTML rendered as the sample contact in a sandboxed, scaled iframe), new, duplicate, delete (campaigns keep their own copy, so deleting a template never changes a campaign).
+- Template editor (`/templates/{id}`): Unlayer embedded through `wwwroot/js/editor.js` (init, load design, export HTML — the only JavaScript in the app) in a reusable `EmailEditor` component that Phase 5's campaign editor will reuse; design JSON and exported HTML saved together; Merge Tags menu offers first name (with the "there" fallback), last name and email.
+- Image uploads from the editor go to `POST /assets/images` → public `email-assets` blob container with a one-year immutable cache header (local temp folder + `/assets/` route when no storage is configured).
+- `TemplateRenderer`: Scriban in Liquid syntax, `{{ first_name | default: "there" }}`; every contact value HTML-encoded in HTML (subject rendered as plain text); unknown fields render empty; custom fields exposed as snake_case (`Unit Size` → `unit_size`); `&quot;` inside tags (how visual editors store quotes) is decoded before parsing; parse errors are reported on save.
+- Preview tab: desktop (640 px) and mobile (375 px) widths, as the named sample, the email-only sample, or any contact by email.
+- Send test from the editor: up to five addresses; merge fields rendered per address with that contact's data (email-only when the address isn't a contact); mailing-address footer; never counted.
+- Tabs keep the editor mounted (`KeepPanelsAlive`) so switching to Preview or Send test never loses unsaved edits.
+
+Verification note: this build environment cannot reach editor.unlayer.com (outbound policy), so the browser walk-through ran with a stand-in for the Unlayer script that implements the same calls (createEditor, loadDesign, exportHtml, registerCallback). It confirmed: create → edit → save → preview shows "Hi Ann" for the named sample and "Hi there" for the email-only sample → test send accepted → reload restores the saved design, with no circuit errors; and that a blocked editor script shows a one-sentence error instead of a blank page. **The real Unlayer editor loading in the owner's browser is the open acceptance check.** If Unlayer's free embed turns out to be unavailable, the spec's fallback (GrapesJS newsletter preset) replaces only `editor.js`.
+
+Tests (8 new): name renders, fallback for email-only, HTML encoding of every value, plain-text subject, unknown field empty, custom field in snake_case, editor-encoded quotes, broken tag reported.

@@ -1,0 +1,57 @@
+@* Merge-field preview in desktop and mobile widths, for a sample or a real contact. *@
+@using CampaignTool.Web.Services
+@inject AppDbContext Db
+
+<MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudToggleGroup T="int" @bind-Value="_width" Color="Color.Primary" Size="Size.Small">
+        <MudToggleItem Value="640" Text="Desktop" />
+        <MudToggleItem Value="375" Text="Mobile" />
+    </MudToggleGroup>
+    <MudSelect T="string" Value="_who" ValueChanged="WhoChanged" Label="Preview as" Variant="Variant.Outlined" Dense="true" Style="min-width:260px">
+        <MudSelectItem Value="@("named")">Sample contact with a name (Ann Lee)</MudSelectItem>
+        <MudSelectItem Value="@("email-only")">Sample email-only contact</MudSelectItem>
+        <MudSelectItem Value="@("contact")">A contact by email…</MudSelectItem>
+    </MudSelect>
+    @if (_who == "contact")
+    {
+        <MudTextField @bind-Value="_lookup" Label="Contact email" Variant="Variant.Outlined" Margin="Margin.Dense" OnBlur="RenderAsync" />
+    }
+</MudStack>
+@if (_error is not null) { <MudAlert Severity="Severity.Warning" Class="mb-2">@_error</MudAlert> }
+<MudText Typo="Typo.subtitle2" Class="mb-1">Subject: @_subject</MudText>
+<iframe srcdoc="@_html" sandbox="" title="Email preview" style="width:@(_width)px;max-width:100%;height:720px;border:1px solid #e0e0e0;background:#fff"></iframe>
+
+@code {
+    [Parameter] public string Subject { get; set; } = "";
+    [Parameter] public string Html { get; set; } = "";
+
+    private int _width = 640;
+    private string _who = "named";
+    private string? _lookup, _error, _subject, _html;
+
+    protected override Task OnParametersSetAsync() => RenderAsync();
+
+    private Task WhoChanged(string v) { _who = v; return RenderAsync(); }
+
+    private async Task RenderAsync()
+    {
+        _error = null;
+        var contact = _who == "email-only" ? TemplateRenderer.SampleEmailOnly : TemplateRenderer.SampleNamed;
+        if (_who == "contact" && !string.IsNullOrWhiteSpace(_lookup))
+        {
+            var email = EmailRules.Normalize(_lookup);
+            var found = await Db.Contacts.AsNoTracking().SingleOrDefaultAsync(c => c.EmailNormalized == email);
+            if (found is null) _error = $"No contact with the address {email}; showing the sample instead.";
+            else contact = found;
+        }
+        try
+        {
+            _subject = TemplateRenderer.RenderText(Subject, contact);
+            _html = TemplateRenderer.RenderHtml(Html, contact);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

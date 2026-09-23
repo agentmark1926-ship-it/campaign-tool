@@ -46,6 +46,8 @@ builder.Services.AddScoped<EventProcessor>();
 builder.Services.AddSingleton<ImportFileStore>();
 builder.Services.AddScoped<ContactImportService>();
 builder.Services.AddScoped<ContactService>();
+builder.Services.AddSingleton<AssetStore>();
+builder.Services.AddScoped<TemplateService>();
 builder.Services.AddHostedService<CampaignWorker>();
 
 builder.Services.AddRazorComponents()
@@ -73,6 +75,7 @@ app.MapStaticAssets();
 app.MapHealthEndpoint();
 app.MapAcsWebhookEndpoint();
 app.MapExportEndpoints();
+app.MapAssetEndpoints();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
