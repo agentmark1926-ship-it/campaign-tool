@@ -4,9 +4,9 @@
 using './main.bicep'
 
 param appName = 'ashiwaju'                       // 3-14 lowercase letters/digits
-param entraClientId = '00000000-0000-0000-0000-000000000000'
+param entraClientId = '96676af7-caee-4824-8e26-a5451355fa03'
 param allowedUsers = 'admin@self-storagedevelopers.com'
-param senderDomain = 'news.self-storagedevelopers.com'
+param senderDomain = 'self-storagedevelopers.com'             // root domain during the build; switch to a subdomain before real sends
 param mailingAddress = 'Self Storage Developers, 1101 Brickell Ave., 8th Fl, South Tower, Miami, FL 33131'
 param timeZone = 'America/Chicago'
 param linuxFxVersion = 'DOTNETCORE|10.0'

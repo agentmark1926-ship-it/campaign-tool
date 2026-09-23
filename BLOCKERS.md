@@ -8,10 +8,10 @@ Claude Code runs in a cloud session that cannot reach Azure (`management.azure.c
 
 - [x] `appName` = `ashiwaju` → Web App `ashiwaju-web` (if Azure says the name is taken, tell me and I'll change it)
 - [x] `allowedUsers` = `admin@self-storagedevelopers.com`
-- [ ] Sending subdomain = `news.self-storagedevelopers.com` — **confirm**. You gave the root domain; the spec sends from a dedicated subdomain so campaign bounces or spam complaints can never hurt the reputation of your everyday Microsoft 365 mail on `self-storagedevelopers.com`, and so ACS's SPF/DKIM records don't touch your M365 ones. Reply "confirm" or name another subdomain.
+- [x] Sending domain = `self-storagedevelopers.com` (owner's choice for the build phase). **Before the first real campaign**, switch to a subdomain such as `news.self-storagedevelopers.com` so campaign bounces and complaints cannot affect everyday Microsoft 365 mail on the root domain.
 - [x] Mailing address = Self Storage Developers, 1101 Brickell Ave., 8th Fl, South Tower, Miami, FL 33131 (change the company name in the params if the legal sender name differs)
 - [x] Time zone = `America/Chicago`
-- [ ] `entraClientId` — from step 1 below
+- [x] `entraClientId` = `96676af7-caee-4824-8e26-a5451355fa03`
 
 ## 1. Entra app registration for sign-in (Cloud Shell)
 
