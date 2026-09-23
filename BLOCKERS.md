@@ -48,16 +48,17 @@ az deployment group create -g rg-ashiwaju-app -f infra/main.bicep -p infra/main.
 SUB=$(az account show --query id -o tsv); TENANT=$(az account show --query tenantId -o tsv)
 DEPLOY_ID=$(az ad app create --display-name ashiwaju-deploy --query appId -o tsv)
 az ad sp create --id "$DEPLOY_ID"
-az ad app federated-credential create --id "$DEPLOY_ID" --parameters '{"name":"github-main","issuer":"https://token.actions.githubusercontent.com","subject":"repo:agentmark1926-ship-it/campaign-tool:ref:refs/heads/main","audiences":["api://AzureADTokenExchange"]}'
+az ad app federated-credential create --id "$DEPLOY_ID" --parameters '{"name":"github-main","issuer":"https://token.actions.githubusercontent.com","subject":"repo:agentmark1926-ship-it@329644780/campaign-tool@1383551704:ref:refs/heads/main","audiences":["api://AzureADTokenExchange"]}'
 az role assignment create --assignee "$DEPLOY_ID" --role Contributor --scope "/subscriptions/$SUB/resourceGroups/rg-ashiwaju-app"
 echo "AZURE_CLIENT_ID=$DEPLOY_ID AZURE_TENANT_ID=$TENANT AZURE_SUBSCRIPTION_ID=$SUB"
 ```
 
-- [ ] GitHub → campaign-tool → Settings → Secrets and variables → Actions: secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`; variable `AZURE_WEBAPP_NAME` = `ashiwaju-web`
+- [x] GitHub → campaign-tool → Settings → Secrets and variables → Actions: secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`; variable `AZURE_WEBAPP_NAME` = `ashiwaju-web`
 
 ## 4. First deploy
 
-- [ ] Merge branch `claude/campaign-tool-setup-7gh7yp` into `main` (open a PR or ask me to). The workflow builds, tests, deploys and checks `/health`. Then open `https://ashiwaju-web.azurewebsites.net`, sign in, and confirm you see the dashboard.
+- [x] Merged to `main`; deployed and healthy. **Remaining:** sign in and confirm the dashboard.
+- [x] (original ask) Merge branch `claude/campaign-tool-setup-7gh7yp` into `main` (open a PR or ask me to). The workflow builds, tests, deploys and checks `/health`. Then open `https://ashiwaju-web.azurewebsites.net`, sign in, and confirm you see the dashboard.
 
 ## Long-pole items (start now, needed from Phase 2 on)
 
