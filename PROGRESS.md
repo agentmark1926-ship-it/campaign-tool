@@ -4,7 +4,7 @@ Maintained by Claude Code. One entry per phase.
 
 | Phase | Status | Verified in Azure | Waiting on owner |
 | --- | --- | --- | --- |
-| 1 Foundation | code done, tests green (13) | no | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
+| 1 Foundation | code done, tests green (13) | infra deployed; app not yet deployed | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
 | 2 ACS and events | not started | | |
 | 3 Contacts | not started | | |
 | 4 Templates and editor | not started | | |
@@ -28,6 +28,19 @@ Done and verified locally:
 
 Tests: health anonymous 200; no user 401; allowed users (case-insensitive) 200; other user 403; public paths skip the check; migration creates every table; allowed-user list parsing.
 
-Not yet verified in Azure (acceptance lines still open): Entra sign-in in Azure, Bicep deployment, GitHub Actions deploy, `/health` 200 in Azure.
+Azure deployment (owner ran `infra/main.bicep` from Cloud Shell, 2026-09-23):
+
+| Output | Value |
+| --- | --- |
+| Resource group | `rg-ashiwaju-app` (Central US) |
+| Web App | `ashiwaju-web` — https://ashiwaju-web.azurewebsites.net |
+| SQL server | `ashiwaju-sql-7llp2n6niyjp4.database.windows.net` (db `campaigns`) |
+| Storage | `ashiwaju7llp2n6niyjp4` |
+| ACS / Email service | `ashiwaju-acs` / `ashiwaju-email` |
+| Sender domain | `self-storagedevelopers.com` (root, build phase only) |
+
+DNS records from the `dnsRecords` output: TXT `ms-domain-verification=36207cd6-f843-4774-8f3e-6dcfbfde3e24` at the root; SPF `v=spf1 include:spf.protection.outlook.com -all` (same include as Microsoft 365, so the existing SPF record already covers it — do not add a second SPF record); CNAME `selector1-azurecomm-prod-net._domainkey` → `selector1-azurecomm-prod-net._domainkey.azurecomm.net`; CNAME `selector2-azurecomm-prod-net._domainkey` → `selector2-azurecomm-prod-net._domainkey.azurecomm.net`.
+
+Still open for Phase 1: GitHub Actions deploy identity and secrets, first deploy, `/health` 200 in Azure, Entra sign-in verified in Azure.
 
 Where the code lives: branch `claude/campaign-tool-setup-7gh7yp`. It is not on `main` yet because a push to `main` runs the deploy, which fails until the GitHub secrets exist. Merge once BLOCKERS 1–5 are cleared.

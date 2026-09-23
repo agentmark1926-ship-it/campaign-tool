@@ -30,16 +30,17 @@ az ad app credential reset --id <ENTRA_CLIENT_ID> --append --display-name easyau
 ```bash
 git clone https://github.com/agentmark1926-ship-it/campaign-tool && cd campaign-tool
 git checkout claude/campaign-tool-setup-7gh7yp
-az group create -n rg-ashiwaju -l eastus2
+az group create -n rg-ashiwaju-app -l centralus
 export SQL_ADMIN_PASSWORD="$(openssl rand -base64 24)Aa1!" \
        ENTRA_CLIENT_SECRET='<from step 1>' \
        WEBHOOK_SECRET="$(openssl rand -hex 32)" \
        UNSUBSCRIBE_KEY="$(openssl rand -hex 32)"
-az deployment group create -g rg-ashiwaju -f infra/main.bicep -p infra/main.bicepparam \
+az deployment group create -g rg-ashiwaju-app -f infra/main.bicep -p infra/main.bicepparam \
   --query properties.outputs -o json
 ```
 
-- [ ] Deployment succeeded. Paste me the `outputs` block (it contains no secrets: names, URL and the DNS records). The secrets live only in App Service settings; you do not need to save them elsewhere (`WEBHOOK_SECRET` is needed again only when `createEventSubscription` is flipped — re-read it with `az webapp config appsettings list`).
+- [x] Deployment succeeded (2026-09-23, resource group `rg-ashiwaju-app`, Central US; East US 2 has 0 B1 quota on this subscription and the first Central US group hit an App Service capacity shortage). Outputs recorded in PROGRESS.md.
+- [x] (original ask) Paste me the `outputs` block (it contains no secrets: names, URL and the DNS records). The secrets live only in App Service settings; you do not need to save them elsewhere (`WEBHOOK_SECRET` is needed again only when `createEventSubscription` is flipped — re-read it with `az webapp config appsettings list`).
 
 ## 3. GitHub Actions deploy identity (Cloud Shell)
 
@@ -48,7 +49,7 @@ SUB=$(az account show --query id -o tsv); TENANT=$(az account show --query tenan
 DEPLOY_ID=$(az ad app create --display-name ashiwaju-deploy --query appId -o tsv)
 az ad sp create --id "$DEPLOY_ID"
 az ad app federated-credential create --id "$DEPLOY_ID" --parameters '{"name":"github-main","issuer":"https://token.actions.githubusercontent.com","subject":"repo:agentmark1926-ship-it/campaign-tool:ref:refs/heads/main","audiences":["api://AzureADTokenExchange"]}'
-az role assignment create --assignee "$DEPLOY_ID" --role Contributor --scope "/subscriptions/$SUB/resourceGroups/rg-ashiwaju"
+az role assignment create --assignee "$DEPLOY_ID" --role Contributor --scope "/subscriptions/$SUB/resourceGroups/rg-ashiwaju-app"
 echo "AZURE_CLIENT_ID=$DEPLOY_ID AZURE_TENANT_ID=$TENANT AZURE_SUBSCRIPTION_ID=$SUB"
 ```
 
