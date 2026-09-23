@@ -3,11 +3,11 @@
 //   az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam
 using './main.bicep'
 
-param appName = 'campaigns'                       // 3-14 lowercase letters/digits
+param appName = 'ashiwaju'                       // 3-14 lowercase letters/digits
 param entraClientId = '00000000-0000-0000-0000-000000000000'
-param allowedUsers = 'you@yourdomain.com'
-param senderDomain = 'news.yourdomain.com'
-param mailingAddress = 'Your Company, 123 Main St, City, ST 00000'
+param allowedUsers = 'admin@self-storagedevelopers.com'
+param senderDomain = 'news.self-storagedevelopers.com'
+param mailingAddress = 'Self Storage Developers, 1101 Brickell Ave., 8th Fl, South Tower, Miami, FL 33131'
 param timeZone = 'America/Chicago'
 param linuxFxVersion = 'DOTNETCORE|10.0'
 

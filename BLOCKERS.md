@@ -4,20 +4,19 @@ Exact asks for the owner. Claude Code appends here; the owner clears items and r
 
 Claude Code runs in a cloud session that cannot reach Azure (`management.azure.com` is blocked), so the Azure steps below are yours. The easiest place to run them is **Azure Cloud Shell** (portal → the `>_` icon, Bash); it is already signed in and has `az` and Bicep.
 
-## Values I need from you (reply with these; none are secret)
+## Values (done, committed to `infra/main.bicepparam`)
 
-- [ ] `appName` — 3–14 lowercase letters/digits (default `campaigns` → Web App `campaigns-web`; must be globally unique)
-- [ ] Your sign-in UPN(s) for `allowedUsers`
-- [ ] Sending subdomain, e.g. `news.self-storagedevelopers.com`, and confirmation you can add DNS records there
-- [ ] Postal mailing address for the email footer (required by CAN-SPAM)
-- [ ] Time zone (default `America/Chicago`)
-
-I will put them in `infra/main.bicepparam` and commit.
+- [x] `appName` = `ashiwaju` → Web App `ashiwaju-web` (if Azure says the name is taken, tell me and I'll change it)
+- [x] `allowedUsers` = `admin@self-storagedevelopers.com`
+- [ ] Sending subdomain = `news.self-storagedevelopers.com` — **confirm**. You gave the root domain; the spec sends from a dedicated subdomain so campaign bounces or spam complaints can never hurt the reputation of your everyday Microsoft 365 mail on `self-storagedevelopers.com`, and so ACS's SPF/DKIM records don't touch your M365 ones. Reply "confirm" or name another subdomain.
+- [x] Mailing address = Self Storage Developers, 1101 Brickell Ave., 8th Fl, South Tower, Miami, FL 33131 (change the company name in the params if the legal sender name differs)
+- [x] Time zone = `America/Chicago`
+- [ ] `entraClientId` — from step 1 below
 
 ## 1. Entra app registration for sign-in (Cloud Shell)
 
 ```bash
-APP=campaigns            # your appName
+APP=ashiwaju
 az ad app create --display-name "$APP" \
   --web-redirect-uris "https://$APP-web.azurewebsites.net/.auth/login/aad/callback" \
   --enable-id-token-issuance true --query appId -o tsv            # -> ENTRA_CLIENT_ID
@@ -31,12 +30,12 @@ az ad app credential reset --id <ENTRA_CLIENT_ID> --append --display-name easyau
 ```bash
 git clone https://github.com/agentmark1926-ship-it/campaign-tool && cd campaign-tool
 git checkout claude/campaign-tool-setup-7gh7yp
-az group create -n rg-campaigns -l eastus2
+az group create -n rg-ashiwaju -l eastus2
 export SQL_ADMIN_PASSWORD="$(openssl rand -base64 24)Aa1!" \
        ENTRA_CLIENT_SECRET='<from step 1>' \
        WEBHOOK_SECRET="$(openssl rand -hex 32)" \
        UNSUBSCRIBE_KEY="$(openssl rand -hex 32)"
-az deployment group create -g rg-campaigns -f infra/main.bicep -p infra/main.bicepparam \
+az deployment group create -g rg-ashiwaju -f infra/main.bicep -p infra/main.bicepparam \
   --query properties.outputs -o json
 ```
 
@@ -46,18 +45,18 @@ az deployment group create -g rg-campaigns -f infra/main.bicep -p infra/main.bic
 
 ```bash
 SUB=$(az account show --query id -o tsv); TENANT=$(az account show --query tenantId -o tsv)
-DEPLOY_ID=$(az ad app create --display-name campaigns-deploy --query appId -o tsv)
+DEPLOY_ID=$(az ad app create --display-name ashiwaju-deploy --query appId -o tsv)
 az ad sp create --id "$DEPLOY_ID"
 az ad app federated-credential create --id "$DEPLOY_ID" --parameters '{"name":"github-main","issuer":"https://token.actions.githubusercontent.com","subject":"repo:agentmark1926-ship-it/campaign-tool:ref:refs/heads/main","audiences":["api://AzureADTokenExchange"]}'
-az role assignment create --assignee "$DEPLOY_ID" --role Contributor --scope "/subscriptions/$SUB/resourceGroups/rg-campaigns"
+az role assignment create --assignee "$DEPLOY_ID" --role Contributor --scope "/subscriptions/$SUB/resourceGroups/rg-ashiwaju"
 echo "AZURE_CLIENT_ID=$DEPLOY_ID AZURE_TENANT_ID=$TENANT AZURE_SUBSCRIPTION_ID=$SUB"
 ```
 
-- [ ] GitHub → campaign-tool → Settings → Secrets and variables → Actions: secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`; variable `AZURE_WEBAPP_NAME` = `<appName>-web`
+- [ ] GitHub → campaign-tool → Settings → Secrets and variables → Actions: secrets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`; variable `AZURE_WEBAPP_NAME` = `ashiwaju-web`
 
 ## 4. First deploy
 
-- [ ] Merge branch `claude/campaign-tool-setup-7gh7yp` into `main` (open a PR or ask me to). The workflow builds, tests, deploys and checks `/health`. Then open `https://<appName>-web.azurewebsites.net`, sign in, and confirm you see the dashboard.
+- [ ] Merge branch `claude/campaign-tool-setup-7gh7yp` into `main` (open a PR or ask me to). The workflow builds, tests, deploys and checks `/health`. Then open `https://ashiwaju-web.azurewebsites.net`, sign in, and confirm you see the dashboard.
 
 ## Long-pole items (start now, needed from Phase 2 on)
 
