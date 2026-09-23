@@ -72,7 +72,7 @@ echo "AZURE_CLIENT_ID=$DEPLOY_ID AZURE_TENANT_ID=$TENANT AZURE_SUBSCRIPTION_ID=$
 No code download needed. This links the free Azure test domain, points the app's sender at it, and creates the Event Grid subscription to `/webhooks/acs` (the app must already be running Phase 2 to answer the handshake).
 
 - [x] Ran the block (2026-09-23): sender `DoNotReply@e93c6f02-275f-4e7b-ae0c-b5cd4cd5540f.azurecomm.net`, event subscription created
-- [ ] Send a test email from Settings to your inbox; confirm it arrives and a `Delivered` report shows under "Recent delivery reports"
+- [x] Test email from Settings arrived in the inbox; `Delivered` report shown (2026-09-23)
 
 ```bash
 az config set extension.use_dynamic_install=yes_without_prompt -o none

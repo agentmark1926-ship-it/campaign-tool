@@ -5,8 +5,8 @@ Maintained by Claude Code. One entry per phase.
 | Phase | Status | Verified in Azure | Waiting on owner |
 | --- | --- | --- | --- |
 | 1 Foundation | done | deployed, `/health` 200, owner signed in and saw the dashboard (2026-09-23) | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
-| 2 ACS and events | code done, tests green (40) | deployed; test domain linked; Event Grid handshake passed | test send to an inbox + Delivered report |
-| 3 Contacts | not started | | |
+| 2 ACS and events | done | test send from Settings reached the owner's inbox; Delivered report stored and shown (2026-09-23) | |
+| 3 Contacts | code done, tests green (56) | not yet | merge to `main`; import the real subscriber file |
 | 4 Templates and editor | not started | | |
 | 5 Campaigns and sending | not started | | |
 | 6 Results and unsubscribe | not started | | |
@@ -62,6 +62,26 @@ Done and verified locally:
 
 Tests (27 new): email normalization/validation; webhook key rejection, handshake, stored-once delivery event, click URL, ignored event types; settings defaults/save/reload/validation; test email fan-out, footer, and rejection of >5, invalid, and empty input.
 
-Deployed (run 35928080845). Owner ran the Cloud Shell block 2026-09-23: test domain linked, sender `DoNotReply@e93c6f02-275f-4e7b-ae0c-b5cd4cd5540f.azurecomm.net`, Event Grid subscription `email-events` created (the validation handshake against `/webhooks/acs` passed). Remaining: the Cloud Shell block in BLOCKERS "Phase 2" (test domain, sender setting, Event Grid subscription), then a test send from Settings to a seed inbox with the Delivered report visible within 2 minutes.
+Deployed (run 35928080845). Owner ran the Cloud Shell block 2026-09-23: test domain linked, sender `DoNotReply@e93c6f02-275f-4e7b-ae0c-b5cd4cd5540f.azurecomm.net`, Event Grid subscription `email-events` created (the validation handshake against `/webhooks/acs` passed). Owner then sent a test from Settings: it landed in the Outlook inbox (not junk) and the Delivered report appeared under Recent delivery reports. Phase 2 complete. (Earlier note: the Cloud Shell block in BLOCKERS "Phase 2" (test domain, sender setting, Event Grid subscription), then a test send from Settings to a seed inbox with the Delivered report visible within 2 minutes — done.)
 
 Not built yet (Settings items the spec puts under deliverability): "Check DNS" button — planned with the domain switch.
+
+## Phase 3 — Contacts
+
+Done and verified locally (tests plus a browser walk-through of the import wizard, grid, lists and CSV downloads):
+
+- Contacts grid (`/contacts`): search by email or name, filter by status and list, server-side paging, bulk add-to-list / unsubscribe / delete with one confirmation, CSV export of the current filter.
+- Contact page (`/contacts/{id}`): name fields, custom fields, lists (add/remove), status with reason and date, suppression flag, Unsubscribe and the deliberate Re-subscribe (refused while the address is suppressed), campaign history.
+- Lists (`/lists`): create, rename, delete (refused while an unfinished campaign targets the list); members and sendable count (Subscribed and not suppressed).
+- Suppressions (`/suppressions`): search, add with reason, remove; removing never re-subscribes.
+- Import wizard (`/contacts/import`): Upload (.csv/.txt, 50 MB) → Map (skipped for one-column files) → Preview counts → optional add-to-list (existing or new) → worker import with a progress bar polled every 2 s → Summary with rejects CSV.
+- Detection: comma/semicolon/tab, header row, UTF-8 BOM, quoted fields; email column by the 90% rule, falling back to a header named Email/E-mail (the browser walk-through caught a small file whose 80% valid email column wasn't recognised).
+- Import rules: normalize, syntax-only validation, in-file duplicates skipped, existing contacts get non-empty fields merged (`Import:UpdateExisting`), Status never changed, suppressed addresses imported with the matching non-subscribed status, batches of 1,000 with one SaveChanges per batch.
+- Imports run in `CampaignWorker` (the spec's single worker; campaign sending joins it in Phase 5), claimed atomically so a second process can't double-run one.
+- Uploaded files go to the private `imports` blob container (local temp folder when `ConnectionStrings:Storage` is empty). The 30-day deletion is the retention job (Phase 7).
+- CSV exports prefix `=`, `+`, `-`, `@` cells with an apostrophe.
+- Migration `Phase3_Imports` (Delimiter, HasHeader, MappingJson, index on Status).
+
+Tests (16 new): CSV detection (one column with/without header, semicolon, tab, quoted fields, Excel BOM + CRLF, header fallback, default mapping), export injection, 10,000-row one-column import under 2 minutes with exact Imported/Skipped/Invalid counts, re-import updates fields but never status, suppressed address stays unsubscribed, multi-column mapping with custom fields and a new list, rejects with row numbers, unsubscribe/resubscribe/suppression rules, sendable count.
+
+Waiting on the owner: merge to `main`, then import the real subscriber file and check the counts.

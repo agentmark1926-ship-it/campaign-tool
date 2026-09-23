@@ -1,0 +1,163 @@
+@page "/contacts/{Id:int}"
+@using System.Text.Json
+@using CampaignTool.Web.Services
+@inject AppDbContext Db
+@inject ContactService ContactService
+@inject SettingsService SettingsService
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>Contact</PageTitle>
+
+@if (_contact is null)
+{
+    <MudText>@(_loaded ? "This contact no longer exists." : "")</MudText>
+    return;
+}
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">@_contact.Email</MudText>
+    <StatusChip Status="_contact.Status" />
+</MudStack>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Fields</MudText>
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_first" Label="First name" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="_last" Label="Last name" Variant="Variant.Outlined" />
+                @foreach (var (k, v) in _custom)
+                {
+                    <MudTextField Value="v" Label="@k" ReadOnly="true" Variant="Variant.Outlined" />
+                }
+                <MudText Typo="Typo.caption">Source: @_contact.Source · added @TimeFormat.Local(_contact.CreatedAtUtc, _tz)</MudText>
+                <div><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton></div>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4 mb-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Status</MudText>
+            <MudText><b>@_contact.Status</b>@(string.IsNullOrEmpty(_contact.StatusReason) ? "" : $" — {_contact.StatusReason}")</MudText>
+            <MudText Typo="Typo.caption">Since @TimeFormat.Local(_contact.StatusChangedAtUtc, _tz)@(_suppressed is null ? "" : $" · on the suppression list ({_suppressed})")</MudText>
+            <MudStack Row="true" Class="mt-3">
+                @if (_contact.Status == ContactStatus.Subscribed)
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="UnsubscribeAsync">Unsubscribe</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Outlined" OnClick="ResubscribeAsync">Re-subscribe</MudButton>
+                }
+            </MudStack>
+        </MudPaper>
+
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Lists</MudText>
+            @foreach (var l in _memberOf)
+            {
+                <MudChip T="string" OnClose="@(() => RemoveFromListAsync(l.Id))">@l.Name</MudChip>
+            }
+            @if (_memberOf.Count == 0) { <MudText Typo="Typo.body2">Not in any list.</MudText> }
+            <MudStack Row="true" Class="mt-3" AlignItems="AlignItems.Center">
+                <MudSelect T="int?" @bind-Value="_addList" Label="Add to list" Variant="Variant.Outlined" Dense="true">
+                    @foreach (var l in _allLists.Where(a => _memberOf.All(m => m.Id != a.Id)))
+                    {
+                        <MudSelectItem T="int?" Value="l.Id">@l.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Outlined" Disabled="_addList is null" OnClick="AddToListAsync">Add</MudButton>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Campaign history</MudText>
+            <MudSimpleTable Dense="true">
+                <thead><tr><th>Campaign</th><th>Sent</th><th>Status</th><th>Clicks</th></tr></thead>
+                <tbody>
+                    @foreach (var h in _history)
+                    {
+                        <tr><td>@h.Name</td><td>@TimeFormat.Local(h.SentAtUtc, _tz)</td><td>@h.Status</td><td>@h.ClickCount</td></tr>
+                    }
+                    @if (_history.Count == 0) { <tr><td colspan="4">No campaigns sent to this contact yet.</td></tr> }
+                </tbody>
+            </MudSimpleTable>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private record HistoryRow(string Name, DateTime? SentAtUtc, RecipientStatus Status, int ClickCount);
+    private record ListRef(int Id, string Name);
+
+    private Contact? _contact;
+    private bool _loaded;
+    private string _tz = "UTC";
+    private string? _first, _last;
+    private Dictionary<string, string> _custom = [];
+    private SuppressionReason? _suppressed;
+    private List<ListRef> _memberOf = [], _allLists = [];
+    private List<HistoryRow> _history = [];
+    private int? _addList;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _tz = (await SettingsService.GetAsync()).TimeZone;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _contact = await Db.Contacts.AsNoTracking().SingleOrDefaultAsync(c => c.Id == Id);
+        _loaded = true;
+        if (_contact is null) return;
+        _first = _contact.FirstName;
+        _last = _contact.LastName;
+        _custom = JsonSerializer.Deserialize<Dictionary<string, string>>(_contact.CustomFields) ?? [];
+        _suppressed = await Db.Suppressions.Where(s => s.EmailNormalized == _contact.EmailNormalized).Select(s => (SuppressionReason?)s.Reason).FirstOrDefaultAsync();
+        _memberOf = await Db.ListContacts.Where(lc => lc.ContactId == Id).OrderBy(lc => lc.List.Name).Select(lc => new ListRef(lc.ListId, lc.List.Name)).ToListAsync();
+        _allLists = await Db.Lists.OrderBy(l => l.Name).Select(l => new ListRef(l.Id, l.Name)).ToListAsync();
+        _history = await Db.CampaignRecipients.Where(r => r.ContactId == Id).OrderByDescending(r => r.Id)
+            .Select(r => new HistoryRow(r.Campaign.Name, r.SentAtUtc, r.Status, r.ClickCount)).ToListAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        await ContactService.UpdateNameAsync(Id, _first, _last);
+        Snackbar.Add("Saved.", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task UnsubscribeAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Unsubscribe", "Unsubscribe this contact and add the address to the suppression list?", "Unsubscribe", cancelText: "Cancel") != true) return;
+        await ContactService.UnsubscribeAsync([Id], "Unsubscribed by owner");
+        await LoadAsync();
+    }
+
+    private async Task ResubscribeAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Re-subscribe", "Only re-subscribe someone who has asked to receive email again. Continue?", "Re-subscribe", cancelText: "Cancel") != true) return;
+        if (await ContactService.ResubscribeAsync(Id) is { } error) Snackbar.Add(error, Severity.Warning);
+        await LoadAsync();
+    }
+
+    private async Task AddToListAsync()
+    {
+        await ContactService.AddToListAsync([Id], _addList!.Value);
+        _addList = null;
+        await LoadAsync();
+    }
+
+    private async Task RemoveFromListAsync(int listId)
+    {
+        await ContactService.RemoveFromListAsync(Id, listId);
+        await LoadAsync();
+    }
+}

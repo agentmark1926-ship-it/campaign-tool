@@ -1,0 +1,212 @@
+@page "/contacts/import"
+@using System.Text.Json
+@using CampaignTool.Web.Services
+@implements IDisposable
+@inject ContactImportService Imports
+@inject ContactService ContactService
+@inject AppDbContext Db
+
+<PageTitle>Import contacts</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Import contacts</MudText>
+
+<MudBreadcrumbs Items="Steps" Class="px-0" />
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+}
+
+@switch (_step)
+{
+    case Step.Upload:
+        <MudPaper Class="pa-6" Elevation="1">
+            <MudText Class="mb-4">Choose a .csv or .txt file up to 50 MB. Only an email column is required; a file that is just a list of addresses needs no mapping.</MudText>
+            <InputFile OnChange="UploadAsync" accept=".csv,.txt" disabled="@_busy" />
+            @if (_busy) { <MudProgressLinear Indeterminate="true" Class="mt-4" /><MudText Typo="Typo.caption">Uploading and reading the file…</MudText> }
+        </MudPaper>
+        break;
+
+    case Step.Map:
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Class="mb-2">Tell us what each column holds. Exactly one column must be Email.</MudText>
+            <MudSimpleTable Dense="true">
+                <thead><tr><th>Column</th><th>Sample values</th><th>Import as</th></tr></thead>
+                <tbody>
+                    @for (var i = 0; i < _layout!.Columns.Count; i++)
+                    {
+                        var index = i;
+                        <tr>
+                            <td>@_layout.Columns[index]</td>
+                            <td style="max-width:360px">@string.Join(" · ", _layout.SampleRows.Select(r => index < r.Length ? r[index] : "").Where(v => v != "").Take(3))</td>
+                            <td style="min-width:220px">
+                                <MudSelect T="string" Value="_mapping[index]" ValueChanged="@(v => _mapping[index] = v)" Dense="true" Variant="Variant.Outlined">
+                                    <MudSelectItem Value="@ContactImportService.Email">Email</MudSelectItem>
+                                    <MudSelectItem Value="@ContactImportService.FirstName">First name</MudSelectItem>
+                                    <MudSelectItem Value="@ContactImportService.LastName">Last name</MudSelectItem>
+                                    <MudSelectItem Value="@(ContactImportService.CustomPrefix + _layout.Columns[index])">Custom field "@_layout.Columns[index]"</MudSelectItem>
+                                    <MudSelectItem Value="@ContactImportService.Ignore">Ignore</MudSelectItem>
+                                </MudSelect>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="ToPreviewAsync" Disabled="_busy">Next</MudButton>
+            @if (_busy) { <MudProgressLinear Indeterminate="true" Class="mt-3" /> }
+        </MudPaper>
+        break;
+
+    case Step.Preview:
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">@_import!.FileName</MudText>
+            <MudSimpleTable Dense="true" Style="max-width:420px">
+                <tbody>
+                    <tr><td>Rows</td><td>@_preview!.TotalRows.ToString("N0")</td></tr>
+                    <tr><td>Valid, unique addresses</td><td>@_preview.Valid.ToString("N0")</td></tr>
+                    <tr><td>Invalid addresses</td><td>@_preview.Invalid.ToString("N0")</td></tr>
+                    <tr><td>Duplicates within the file</td><td>@_preview.Duplicates.ToString("N0")</td></tr>
+                </tbody>
+            </MudSimpleTable>
+            <MudText Typo="Typo.caption">Existing contacts get their empty fields filled in; nobody's subscription status changes.</MudText>
+
+            <MudText Typo="Typo.h6" Class="mt-4">Add everyone to a list (optional)</MudText>
+            <MudStack Row="true" Spacing="3">
+                <MudSelect T="int?" @bind-Value="_listId" Label="Existing list" Variant="Variant.Outlined" Clearable="true" Disabled="!string.IsNullOrWhiteSpace(_newList)">
+                    @foreach (var l in _lists)
+                    {
+                        <MudSelectItem T="int?" Value="l.Id">@l.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudTextField @bind-Value="_newList" Label="…or a new list named" Variant="Variant.Outlined" Immediate="true" Disabled="_listId is not null" />
+            </MudStack>
+            <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="ConfirmAsync" Disabled="_busy || _preview!.Valid == 0">Import @_preview!.Valid.ToString("N0") contacts</MudButton>
+        </MudPaper>
+        break;
+
+    case Step.Importing:
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Class="mb-2">Importing @_import!.FileName… you can leave this page; the import keeps running.</MudText>
+            <MudProgressLinear Color="Color.Primary" Value="Percent" Size="Size.Large" />
+            <MudText Typo="Typo.caption">@Processed.ToString("N0") of @_preview!.TotalRows.ToString("N0") rows</MudText>
+        </MudPaper>
+        break;
+
+    case Step.Summary:
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudAlert Severity="@(_import!.Status == ImportStatus.Completed ? Severity.Success : Severity.Error)" Class="mb-3">
+                @(_import.Status == ImportStatus.Completed ? "Import finished." : "The import stopped; see the rejects file for the reason.")
+            </MudAlert>
+            <MudSimpleTable Dense="true" Style="max-width:420px">
+                <tbody>
+                    <tr><td>Imported (new)</td><td>@_import.Imported.ToString("N0")</td></tr>
+                    <tr><td>Updated (existing)</td><td>@_import.Updated.ToString("N0")</td></tr>
+                    <tr><td>Skipped (duplicates)</td><td>@_import.Skipped.ToString("N0")</td></tr>
+                    <tr><td>Invalid</td><td>@_import.Invalid.ToString("N0")</td></tr>
+                </tbody>
+            </MudSimpleTable>
+            <MudStack Row="true" Class="mt-4">
+                @if (_import.Skipped + _import.Invalid > 0 || _import.Status == ImportStatus.Failed)
+                {
+                    <MudButton Href="@($"/imports/{_import.Id}/rejects.csv")" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download">Rejects CSV</MudButton>
+                }
+                <MudButton Href="/contacts" Variant="Variant.Filled" Color="Color.Primary">View contacts</MudButton>
+                <MudButton OnClick="Restart" Variant="Variant.Text">Import another file</MudButton>
+            </MudStack>
+        </MudPaper>
+        break;
+}
+
+@code {
+    private enum Step { Upload, Map, Preview, Importing, Summary }
+
+    private Step _step = Step.Upload;
+    private bool _busy;
+    private string? _error;
+    private Import? _import;
+    private CsvLayout? _layout;
+    private List<string> _mapping = [];
+    private ImportPreview? _preview;
+    private List<ListSummary> _lists = [];
+    private int? _listId;
+    private string? _newList;
+    private CancellationTokenSource? _poll;
+
+    private List<BreadcrumbItem> Steps =>
+        new[] { "Upload", "Map", "Preview", "Import", "Summary" }
+            .Select((s, i) => new BreadcrumbItem(s, null, disabled: i != (int)_step)).ToList();
+
+    private int Processed => _import is null ? 0 : _import.Imported + _import.Updated + _import.Skipped + _import.Invalid;
+    private double Percent => _preview is null || _preview.TotalRows == 0 ? 0 : 100.0 * Processed / _preview.TotalRows;
+
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        if (e.File.Size > ContactImportService.MaxFileBytes)
+        {
+            _error = "That file is over 50 MB; split it into smaller files.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            await using var stream = e.File.OpenReadStream(ContactImportService.MaxFileBytes);
+            (_import, _layout) = await Imports.CreateAsync(e.File.Name, stream);
+            _mapping = JsonSerializer.Deserialize<List<string>>(_import.MappingJson)!;
+            if (_layout.IsSingleColumn) await ToPreviewAsync();
+            else _step = Step.Map;
+        }
+        catch (ArgumentException ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ToPreviewAsync()
+    {
+        _error = ContactImportService.ValidateMapping(_mapping);
+        if (_error is not null) return;
+        _busy = true;
+        _preview = await Imports.PreviewAsync(_import!, _mapping);
+        _lists = await ContactService.ListSummariesAsync();
+        _busy = false;
+        _step = Step.Preview;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        _busy = true;
+        _error = await Imports.QueueAsync(_import!, _mapping, _listId, _newList);
+        _busy = false;
+        if (_error is not null) return;
+        _step = Step.Importing;
+        _poll = new CancellationTokenSource();
+        _ = PollAsync(_import!.Id, _poll.Token);
+    }
+
+    /// <summary>Re-reads the Imports row every 2 seconds until the worker finishes.</summary>
+    private async Task PollAsync(int id, CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await InvokeAsync(async () =>
+                {
+                    _import = await Db.Imports.AsNoTracking().SingleAsync(i => i.Id == id, ct);
+                    if (_import.Status is ImportStatus.Completed or ImportStatus.Failed) _step = Step.Summary;
+                    StateHasChanged();
+                });
+                if (_step == Step.Summary) return;
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private void Restart()
+    {
+        _step = Step.Upload;
+        _import = null; _layout = null; _preview = null; _listId = null; _newList = null; _error = null;
+    }
+
+    public void Dispose() => _poll?.Cancel();
+}

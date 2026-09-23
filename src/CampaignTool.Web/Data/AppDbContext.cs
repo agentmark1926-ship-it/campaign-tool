@@ -106,6 +106,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.Property(x => x.FileName).HasMaxLength(260);
             e.Property(x => x.BlobPath).HasMaxLength(500);
+            e.Property(x => x.Delimiter).HasMaxLength(2);
+            e.HasIndex(x => x.Status);
         });
 
         b.Entity<Setting>(e =>

@@ -1,0 +1,86 @@
+@page "/suppressions"
+@using CampaignTool.Web.Services
+@inject AppDbContext Db
+@inject ContactService ContactService
+@inject SettingsService SettingsService
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>Suppressions</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Suppressions</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Addresses here are never sent to, whatever their contact status. Removing one does not re-subscribe the contact.</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+        <MudTextField @bind-Value="_newEmail" Label="Email to suppress" Variant="Variant.Outlined" />
+        <MudSelect @bind-Value="_newReason" Label="Reason" Variant="Variant.Outlined">
+            @foreach (var r in Enum.GetValues<SuppressionReason>())
+            {
+                <MudSelectItem Value="r">@r</MudSelectItem>
+            }
+        </MudSelect>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddAsync">Add</MudButton>
+    </MudStack>
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudTextField T="string" Value="_search" ValueChanged="SearchAsync" Label="Search" Variant="Variant.Outlined" DebounceInterval="400" Clearable="true"
+                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+    <MudSimpleTable Dense="true" Class="mt-3">
+        <thead><tr><th>Email</th><th>Reason</th><th>Source</th><th>Added</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var s in _rows)
+            {
+                <tr>
+                    <td>@s.EmailNormalized</td><td>@s.Reason</td><td>@s.Source</td><td>@TimeFormat.Local(s.CreatedAtUtc, _tz)</td>
+                    <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveAsync(s))" /></td>
+                </tr>
+            }
+            @if (_rows.Count == 0) { <tr><td colspan="5">None.</td></tr> }
+        </tbody>
+    </MudSimpleTable>
+    <MudText Typo="Typo.caption">@_total.ToString("N0") suppressed address(es)@(_total > _rows.Count ? $"; showing the newest {_rows.Count}" : "").</MudText>
+</MudPaper>
+
+@code {
+    private List<Suppression> _rows = [];
+    private int _total;
+    private string? _search, _newEmail;
+    private SuppressionReason _newReason = SuppressionReason.Manual;
+    private string _tz = "UTC";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tz = (await SettingsService.GetAsync()).TimeZone;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var q = Db.Suppressions.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(_search)) q = q.Where(s => s.EmailNormalized.Contains(_search.Trim().ToLower()));
+        _total = await q.CountAsync();
+        _rows = await q.OrderByDescending(s => s.CreatedAtUtc).Take(200).ToListAsync();
+    }
+
+    private async Task SearchAsync(string? v) { _search = v; await LoadAsync(); }
+
+    private async Task AddAsync()
+    {
+        if (await ContactService.AddSuppressionAsync(_newEmail ?? "", _newReason) is { } error)
+        {
+            Snackbar.Add(error, Severity.Warning);
+            return;
+        }
+        _newEmail = null;
+        await LoadAsync();
+    }
+
+    private async Task RemoveAsync(Suppression s)
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Remove suppression", $"Allow sending to {s.EmailNormalized} again? The contact keeps its current status until you re-subscribe them on their contact page.", "Remove", cancelText: "Cancel") != true) return;
+        await ContactService.RemoveSuppressionAsync(s.EmailNormalized);
+        await LoadAsync();
+    }
+}

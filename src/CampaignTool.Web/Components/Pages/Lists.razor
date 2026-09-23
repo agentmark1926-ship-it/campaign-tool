@@ -1,0 +1,72 @@
+@page "/lists"
+@using CampaignTool.Web.Services
+@inject ContactService ContactService
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<PageTitle>Lists</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Lists</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">@(_editId is null ? "New list" : "Rename list")</MudText>
+    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+        <MudTextField @bind-Value="_name" Label="Name" Variant="Variant.Outlined" />
+        <MudTextField @bind-Value="_description" Label="Description (optional)" Variant="Variant.Outlined" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">@(_editId is null ? "Create" : "Save")</MudButton>
+        @if (_editId is not null) { <MudButton Variant="Variant.Text" OnClick="ResetForm">Cancel</MudButton> }
+    </MudStack>
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead><tr><th>Name</th><th>Description</th><th>Members</th><th>Sendable</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var l in _lists)
+            {
+                <tr>
+                    <td><MudLink Href="@($"/contacts?list={l.Id}")">@l.Name</MudLink></td>
+                    <td>@l.Description</td>
+                    <td>@l.Members.ToString("N0")</td>
+                    <td>@l.Sendable.ToString("N0")</td>
+                    <td style="white-space:nowrap">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => Edit(l))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(l))" />
+                    </td>
+                </tr>
+            }
+            @if (_lists.Count == 0) { <tr><td colspan="5">No lists yet. Create one above, or when importing a file.</td></tr> }
+        </tbody>
+    </MudSimpleTable>
+    <MudText Typo="Typo.caption" Class="mt-2">Sendable = members who are Subscribed and not on the suppression list.</MudText>
+</MudPaper>
+
+@code {
+    private List<ListSummary> _lists = [];
+    private int? _editId;
+    private string _name = "";
+    private string? _description;
+
+    protected override async Task OnInitializedAsync() => _lists = await ContactService.ListSummariesAsync();
+
+    private void Edit(ListSummary l) { _editId = l.Id; _name = l.Name; _description = l.Description; }
+    private void ResetForm() { _editId = null; _name = ""; _description = null; }
+
+    private async Task SaveAsync()
+    {
+        if (await ContactService.SaveListAsync(_editId, _name, _description) is { } error)
+        {
+            Snackbar.Add(error, Severity.Warning);
+            return;
+        }
+        ResetForm();
+        _lists = await ContactService.ListSummariesAsync();
+    }
+
+    private async Task DeleteAsync(ListSummary l)
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Delete list", $"Delete '{l.Name}'? Its {l.Members:N0} contacts stay in Contacts.", "Delete", cancelText: "Cancel") != true) return;
+        if (await ContactService.DeleteListAsync(l.Id) is { } error) Snackbar.Add(error, Severity.Warning);
+        _lists = await ContactService.ListSummariesAsync();
+    }
+}

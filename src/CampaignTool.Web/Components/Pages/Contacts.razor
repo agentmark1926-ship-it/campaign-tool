@@ -1,0 +1,128 @@
+@page "/contacts"
+@using CampaignTool.Web.Services
+@inject ContactService ContactService
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>Contacts</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Contacts</MudText>
+    <MudSpacer />
+    <MudButton Href="/contacts/import" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile">Import</MudButton>
+    <MudButton Href="@ExportUrl" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download">Export CSV</MudButton>
+</MudStack>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+        <MudTextField T="string" Value="_search" ValueChanged="SearchChanged" Label="Search email or name" Variant="Variant.Outlined"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" DebounceInterval="400" Clearable="true" />
+        <MudSelect T="ContactStatus?" Value="_status" ValueChanged="StatusChanged" Label="Status" Variant="Variant.Outlined" Clearable="true">
+            @foreach (var s in Enum.GetValues<ContactStatus>())
+            {
+                <MudSelectItem T="ContactStatus?" Value="s">@s</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="int?" Value="_listId" ValueChanged="ListChanged" Label="List" Variant="Variant.Outlined" Clearable="true">
+            @foreach (var l in _lists)
+            {
+                <MudSelectItem T="int?" Value="l.Id">@l.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
+
+    @if (_selected.Count > 0)
+    {
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-3">
+            <MudText>@_selected.Count selected</MudText>
+            <MudSelect T="int?" @bind-Value="_bulkList" Label="Add to list" Variant="Variant.Outlined" Dense="true" Style="min-width:200px">
+                @foreach (var l in _lists)
+                {
+                    <MudSelectItem T="int?" Value="l.Id">@l.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudButton Variant="Variant.Outlined" Disabled="_bulkList is null" OnClick="AddToListAsync">Add</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="UnsubscribeAsync">Unsubscribe</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="DeleteAsync">Delete</MudButton>
+        </MudStack>
+    }
+
+    <MudTable @ref="_table" T="Contact" ServerData="LoadAsync" MultiSelection="true" @bind-SelectedItems="_selected" Dense="true" Hover="true"
+              OnRowClick="@((TableRowClickEventArgs<Contact> e) => Nav.NavigateTo($"/contacts/{e.Item!.Id}"))" Class="mt-3" RowStyle="cursor:pointer">
+        <HeaderContent>
+            <MudTh>Email</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Added</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Email</MudTd>
+            <MudTd>@($"{context.FirstName} {context.LastName}".Trim())</MudTd>
+            <MudTd><StatusChip Status="context.Status" /></MudTd>
+            <MudTd>@TimeFormat.Local(context.CreatedAtUtc, _timeZone, "MMM d, yyyy")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>No contacts match. Import a file to get started.</NoRecordsContent>
+        <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    [Inject] private SettingsService SettingsService { get; set; } = null!;
+    [SupplyParameterFromQuery(Name = "list")] public int? ListQuery { get; set; }
+    private MudTable<Contact> _table = null!;
+    private HashSet<Contact> _selected = [];
+    private List<ListSummary> _lists = [];
+    private string? _search;
+    private ContactStatus? _status;
+    private int? _listId, _bulkList;
+    private string _timeZone = "UTC";
+
+    private string ExportUrl =>
+        $"/contacts/export.csv?q={Uri.EscapeDataString(_search ?? "")}&status={_status}&listId={_listId}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _listId = ListQuery;
+        _timeZone = (await SettingsService.GetAsync()).TimeZone;
+        _lists = await ContactService.ListSummariesAsync();
+    }
+
+    private async Task<TableData<Contact>> LoadAsync(TableState state, CancellationToken ct)
+    {
+        var query = ContactService.Query(new ContactQuery(_search, _status, _listId));
+        var total = await query.CountAsync(ct);
+        var items = await query.OrderByDescending(c => c.Id).Skip(state.Page * state.PageSize).Take(state.PageSize).ToListAsync(ct);
+        return new TableData<Contact> { Items = items, TotalItems = total };
+    }
+
+    private Task Reload() { _selected.Clear(); return _table.ReloadServerData(); }
+    private Task SearchChanged(string? v) { _search = v; return Reload(); }
+    private Task StatusChanged(ContactStatus? v) { _status = v; return Reload(); }
+    private Task ListChanged(int? v) { _listId = v; return Reload(); }
+
+    private List<int> SelectedIds => _selected.Select(c => c.Id).ToList();
+
+    private async Task AddToListAsync()
+    {
+        var added = await ContactService.AddToListAsync(SelectedIds, _bulkList!.Value);
+        Snackbar.Add($"Added {added} contact(s) to the list.", Severity.Success);
+        await Reload();
+    }
+
+    private async Task UnsubscribeAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Unsubscribe", $"Unsubscribe {_selected.Count} contact(s) and add them to the suppression list?", "Unsubscribe", cancelText: "Cancel") != true) return;
+        await ContactService.UnsubscribeAsync(SelectedIds, "Unsubscribed by owner");
+        Snackbar.Add("Unsubscribed.", Severity.Success);
+        await Reload();
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Delete contacts", $"Permanently delete {_selected.Count} contact(s) and their send history? Suppressions are kept.", "Delete", cancelText: "Cancel") != true) return;
+        var n = await ContactService.DeleteAsync(SelectedIds);
+        Snackbar.Add($"Deleted {n} contact(s).", Severity.Success);
+        await Reload();
+    }
+}

@@ -1,0 +1,12 @@
+<MudChip T="string" Size="Size.Small" Color="@ColorFor(Status)" Variant="Variant.Outlined">@Status</MudChip>
+
+@code {
+    [Parameter] public ContactStatus Status { get; set; }
+
+    private static Color ColorFor(ContactStatus s) => s switch
+    {
+        ContactStatus.Subscribed => Color.Success,
+        ContactStatus.Unsubscribed => Color.Default,
+        _ => Color.Error,
+    };
+}

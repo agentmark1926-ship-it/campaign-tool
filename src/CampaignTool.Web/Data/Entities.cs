@@ -144,6 +144,10 @@ public class Import
     public string FileName { get; set; } = "";
     public string BlobPath { get; set; } = "";
     public ImportStatus Status { get; set; } = ImportStatus.Uploaded;
+    public string Delimiter { get; set; } = ",";
+    public bool HasHeader { get; set; }
+    /// <summary>JSON array, one entry per file column: "email", "first_name", "last_name", "custom:&lt;name&gt;" or "ignore".</summary>
+    public string MappingJson { get; set; } = "[]";
     public int TotalRows { get; set; }
     public int Imported { get; set; }
     public int Updated { get; set; }

@@ -4,6 +4,7 @@ using CampaignTool.Web.Components;
 using CampaignTool.Web.Data;
 using CampaignTool.Web.Endpoints;
 using CampaignTool.Web.Services;
+using CampaignTool.Web.Workers;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 
@@ -42,6 +43,10 @@ else
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<TestEmailService>();
 builder.Services.AddScoped<EventProcessor>();
+builder.Services.AddSingleton<ImportFileStore>();
+builder.Services.AddScoped<ContactImportService>();
+builder.Services.AddScoped<ContactService>();
+builder.Services.AddHostedService<CampaignWorker>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -67,6 +72,7 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapHealthEndpoint();
 app.MapAcsWebhookEndpoint();
+app.MapExportEndpoints();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
