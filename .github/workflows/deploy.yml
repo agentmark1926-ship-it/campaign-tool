@@ -29,6 +29,19 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
+      # Database tests need a SQL Server; a throwaway container with a per-run password.
+      - name: Start SQL Server for tests
+        run: |
+          pw="Ci$(openssl rand -hex 12)!Aa"
+          echo "::add-mask::$pw"
+          docker run -d --name sql -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$pw" -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          echo "CAMPAIGNTOOL_TEST_SQL=Server=localhost,1433;User ID=sa;Password=$pw;TrustServerCertificate=True" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if docker logs sql 2>&1 | grep -q "ready for client connections"; then exit 0; fi
+            sleep 2
+          done
+          docker logs sql; exit 1
+
       - name: Test
         run: dotnet test --configuration Release --no-build --verbosity normal
 

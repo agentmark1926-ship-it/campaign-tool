@@ -15,7 +15,16 @@ dotnet user-secrets set "ConnectionStrings:Sql" "<local SQL connection string>" 
 dotnet run --project src/CampaignTool.Web
 ```
 
-Without ACS settings the app uses the in-memory email sender; sends are logged, not delivered.
+Without ACS settings the app uses the in-memory email sender; sends are logged, not delivered. In Development the sign-in check is skipped when no App Service Authentication header is present.
+
+## Test
+
+Database tests need a SQL Server (LocalDB or a container). Point them at it without a database name; each test creates and drops its own:
+
+```
+export CAMPAIGNTOOL_TEST_SQL="Server=localhost,1433;User ID=sa;Password=<local password>;TrustServerCertificate=True"
+dotnet test
+```
 
 ## Deploy
 

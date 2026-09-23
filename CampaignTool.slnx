@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CampaignTool.Web/CampaignTool.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CampaignTool.Tests/CampaignTool.Tests.csproj" />
+  </Folder>
+</Solution>
