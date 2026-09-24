@@ -7,6 +7,8 @@ A single-user email campaign app on Azure: Blazor + MudBlazor, Azure SQL Basic, 
 - `KICKOFF.md` — the first prompt to paste into Claude Code
 - `infra/main.bicep` — every Azure resource; `infra/main.bicepparam` — parameters
 - `.github/workflows/deploy.yml` — build, test, deploy on push to `main`
+- `.github/workflows/infra.yml` — redeploy the Bicep with the current secrets, or verify a database restore (run by hand)
+- `PROGRESS.md` / `BLOCKERS.md` — what's built and what's waiting on the owner
 
 ## Run locally
 
@@ -28,4 +30,71 @@ dotnet test
 
 ## Deploy
 
-See the bootstrap order in `CLAUDE.md`. Runbook (rotate secrets, raise sending limits, add a sender, restore the database) is written by Claude Code in Phase 7.
+A push to `main` builds, runs the tests against a throwaway SQL Server, publishes, deploys to `ashiwaju-web` and waits for `/health`. Rollback: GitHub → Actions → deploy → open the last good run → **Re-run all jobs**.
+
+Azure (resource group `rg-ashiwaju-app`, Central US): Web App `ashiwaju-web` (B1), SQL `ashiwaju-sql-…/campaigns` (Basic), Storage `ashiwaju…`, ACS `ashiwaju-acs` + Email service `ashiwaju-email`, Event Grid `ashiwaju-acs-events`, App Insights `ashiwaju-ai`, alerts to the first allowed user.
+
+# Runbook
+
+Everything below is done from a browser: the Azure portal, GitHub, or the app. Nothing needs a local install.
+
+## Redeploy the infrastructure without changing secrets
+
+GitHub → **Actions** → **infra** → **Run workflow** (branch `main`, leave *Redeploy* ticked) → **Run workflow**. It reads the current secrets from the Web App's settings and reapplies `infra/main.bicep`, so no key rotates by accident. Use it after editing `infra/main.bicep` or `main.bicepparam`, and for the domain steps below.
+
+## Rotate secrets
+
+All live only in the Web App's settings (portal → `ashiwaju-web` → **Settings → Environment variables**). Change one, click **Apply**; the app restarts in about 30 seconds.
+
+| Setting | How to rotate | Side effects |
+| --- | --- | --- |
+| `Webhooks__AcsSecret` | Set a new random value (32+ characters), Apply, then run the **infra** workflow so the Event Grid subscription URL gets the same key. | Delivery reports arriving between the two steps are rejected with 401 and retried by Event Grid for 24 hours, so none are lost. |
+| `Auth__UnsubscribeKey` | **Avoid.** Every unsubscribe link in every email already sent is signed with it; a new key makes those links show "Link not valid". Rotate only if it leaked, and expect replies from people who can't unsubscribe from old emails. | |
+| `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` (sign-in) | Portal → **App registrations** → `ashiwaju` → **Certificates & secrets** → **New client secret**; paste the value into this setting; Apply; delete the old secret. | Everyone signs in again. |
+| `Ai__AnthropicApiKey` | console.anthropic.com → **API keys** → create, paste here, Apply, then disable the old key. | |
+| SQL admin password (inside `ConnectionStrings__Sql`) | Portal → SQL server `ashiwaju-sql-…` → **Reset password**; put the same password in the `Password=` part of `ConnectionStrings__Sql`; Apply. | A few seconds of failed requests while the two disagree. |
+| GitHub deploy access | Nothing to rotate: GitHub signs in to Azure with a short-lived OIDC token (federated credentials `github-main` / `github-main-ids` on app `ashiwaju-deploy`). | |
+
+## Raise the sending limits
+
+1. Wait for Microsoft to approve the ACS email quota request, and note the granted per-minute and per-hour numbers.
+2. App → **Settings** → **Sending limits**: set per-minute and per-hour at or below the granted numbers → **Save**. Takes effect on the next batch; no restart.
+3. Click tracking: once you send from your own domain, run the **infra** workflow with **Send from the custom domain** and **Create the extra MailFrom address** ticked; that also switches on engagement (click) tracking for the domain. (Turning it on in the portal instead would be switched off again by the next infra run.)
+
+Never set the limits above what Microsoft granted: ACS returns 429s and the worker retries them on the 1 min / 5 min / 30 min / 2 h / 6 h backoff.
+
+## Switch from the Azure test domain to your own domain (and add a sender address)
+
+1. Have the DNS host add the records from the Bicep `dnsRecords` output (verification TXT, two DKIM CNAMEs; keep the existing SPF, MX and DMARC). Use a subdomain such as `news.self-storagedevelopers.com` before real campaigns; to change it, edit `senderDomain` in `infra/main.bicepparam` and run the **infra** workflow first to get that domain's records.
+2. App → **Settings** → **Check DNS**: all rows green.
+3. Portal → `ashiwaju-email` → **Provision domains** → the domain → **Verify** each record until it shows **Verified**.
+4. GitHub → Actions → **infra** → Run workflow with **Send from the custom domain** ticked. The sender becomes `DoNotReply@<domain>`.
+5. After the quota increase is approved, run **infra** again with both **custom domain** and **Create the extra MailFrom address** ticked. Click tracking switches on and the sender becomes `updates@<domain>` (display name "Updates"; change `senderUsername` / `senderDisplayName` in `main.bicep` first if you want different ones).
+6. Send a test from Settings to your seed inboxes and check it isn't in spam before any campaign.
+
+## Restore the database
+
+Azure SQL Basic keeps 7 days of point-in-time backups.
+
+- **Check restores work (do this once, and after big changes):** GitHub → Actions → **infra** → Run workflow with *Redeploy* unticked and **Restore the database to a scratch copy** ticked. It restores to `campaigns-restore-check`, confirms it's Online, and deletes it.
+- **Recover data:** Portal → SQL database `campaigns` → **Restore** → choose a point in time → new name `campaigns-restored` → **Review + create** (Basic, about 10–20 minutes). Then either copy what you need from it, or make it the live database: portal → `ashiwaju-web` → Environment variables → in `ConnectionStrings__Sql` change `Initial Catalog=campaigns` to `Initial Catalog=campaigns-restored` → Apply. The app applies any missing migrations on start. Delete the old database once you're sure.
+
+## Alerts
+
+Emailed to the first allowed user (`alertEmail` in `main.bicep`):
+
+| Alert | Where it comes from | What to do |
+| --- | --- | --- |
+| Failed above 2% of a campaign's recipients | App check every 5 min → log alert | Open the campaign's Results, filter Failed, read the Note column. |
+| Campaign Sending with no batch for 30 minutes (work due, rate limit not the cause) | App check → log alert | Check `/health`; restart the Web App from the portal if needed. Nothing is resent twice. |
+| Unknown recipients | App check → log alert | Campaign monitor page → Unknown list. Retry only where a duplicate is acceptable. |
+| Webhook 5xx above 5 in 5 minutes | App Insights requests | Portal → `ashiwaju-web` → **Log stream**; Event Grid keeps retrying for 24 h. |
+| CPU above 80% for 15 minutes | App Service plan metric | Usually a very large import; wait, or scale the plan up temporarily. |
+| SQL above 80% of 2 GB | SQL metric | Lower `Retention__EventMonths`, or move to Standard S0. |
+
+## Everyday fixes
+
+- **Blank "HTTP ERROR 500" page, `/health` says healthy:** a stale sign-in session. Open `https://ashiwaju-web.azurewebsites.net/.auth/logout`, then sign in again.
+- **Nightly clean-up:** at 3 AM (`App__TimeZone`) raw delivery/click events older than `Retention__EventMonths` (12) and uploaded import files older than 30 days are deleted. Campaign counts are kept forever.
+- **Someone asks to be removed by reply:** Suppressions → add their address (reason Unsubscribe). It's excluded from every future campaign, whatever list they're on.
+- **Warm-up for the first real list:** day 1 seed inboxes only; day 2 the 1,000 most recent subscribers; day 4 the next 4,000; day 7 everyone. Stop if bounces exceed 2% or anything lands as FilteredSpam (the app pauses a campaign on its own above 0.5%).

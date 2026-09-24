@@ -33,7 +33,7 @@ public class TestApp : WebApplicationFactory<Program>
     public string Environment { get; init; } = "Production";
     public Dictionary<string, string?> Settings { get; } = new() { ["Auth:AllowedUsers"] = "owner@example.com, second@example.com" };
 
-    /// <summary>False: the background CampaignWorker is not started, so a test drives sending itself.</summary>
+    /// <summary>False: the background workers are not started, so a test drives sending, retention and alert checks itself.</summary>
     public bool RunWorker { get; init; } = true;
 
     /// <summary>Extra service replacements (fake clock, scripted email sender, …).</summary>
@@ -48,7 +48,7 @@ public class TestApp : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             if (!RunWorker)
-                foreach (var d in services.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(CampaignTool.Web.Workers.CampaignWorker)).ToList())
+                foreach (var d in services.Where(d => d.ServiceType == typeof(IHostedService) && (d.ImplementationType == typeof(CampaignTool.Web.Workers.CampaignWorker) || d.ImplementationType == typeof(CampaignTool.Web.Workers.RetentionWorker))).ToList())
                     services.Remove(d);
             ConfigureServices?.Invoke(services);
         });

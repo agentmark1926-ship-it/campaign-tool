@@ -94,3 +94,9 @@ echo "Sender is $FROM; event subscription created"
 - [ ] Create an API key at console.anthropic.com → API keys (and set a monthly spend limit under Billing). Then in Cloud Shell, without sending the key to anyone:
   `az webapp config appsettings set -g rg-ashiwaju-app -n ashiwaju-web --settings "Ai__AnthropicApiKey=<paste key>" -o none`
   For future infrastructure redeploys also `export ANTHROPIC_API_KEY=<key>` so the Bicep keeps it.
+
+## Phase 7
+
+- [ ] After merging, run GitHub → Actions → **infra** → Run workflow with *Redeploy* and *Restore the database to a scratch copy* ticked (creates the alerts, verifies point-in-time restore). Confirm the "Azure Monitor alerts" welcome email arrives at the alert address.
+- [ ] Before the first real campaign: switch to your own (sub)domain — README → Runbook → "Switch from the Azure test domain".
+- [ ] Import the real subscriber list and check the counts.

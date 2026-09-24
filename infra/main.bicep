@@ -9,7 +9,9 @@
 // Later, flip these parameters and redeploy (each is a separate step because Azure validates them synchronously):
 //   linkDomain=true              after the email domain shows "Verified" in the portal (DNS records added)
 //   createEventSubscription=true after the app is deployed and answering POST /webhooks/acs
-//   createSenderUsername=true    after the ACS email quota increase is approved (extra MailFrom addresses are blocked on the default quota)
+//   createSenderUsername=true    after the ACS email quota increase is approved (extra MailFrom addresses are blocked on the default quota; also enables click tracking)
+//
+// Use the GitHub 'infra' workflow for redeploys: it reuses the secrets already in the Web App's settings.
 //
 // The `dnsRecords` output prints the exact TXT/CNAME values to add for the sending subdomain.
 
@@ -67,6 +69,9 @@ param linuxFxVersion string = 'DOTNETCORE|10.0'
 param mailingAddress string = ''
 
 param timeZone string = 'America/Chicago'
+
+@description('Where Azure Monitor alerts are emailed. Defaults to the first allowed user.')
+param alertEmail string = first(split(allowedUsers, ','))
 
 param linkDomain bool = false
 param createEventSubscription bool = false
@@ -190,7 +195,8 @@ resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' 
   location: 'global'
   properties: {
     domainManagement: 'CustomerManaged'
-    userEngagementTracking: 'Disabled' // enable in the portal after the quota increase is approved
+    // Click tracking is only allowed after the quota increase, the same moment the extra MailFrom address is created.
+    userEngagementTracking: createSenderUsername ? 'Enabled' : 'Disabled'
   }
 }
 
@@ -352,6 +358,114 @@ resource emailEventSubscription 'Microsoft.EventGrid/systemTopics/eventSubscript
       maxDeliveryAttempts: 30
       eventTimeToLiveInMinutes: 1440
     }
+  }
+}
+
+// ---------- Alerts (SPEC Phase 7; emailed to alertEmail) ----------
+
+resource alertGroup 'Microsoft.Insights/actionGroups@2023-01-01' = {
+  name: '${appName}-alerts'
+  location: 'Global'
+  properties: {
+    groupShortName: take(appName, 12)
+    enabled: true
+    emailReceivers: [
+      { name: 'owner', emailAddress: trim(alertEmail), useCommonAlertSchema: true }
+    ]
+  }
+}
+
+// The app checks failed share > 2%, campaigns Sending with no batch for 30 minutes, and Unknown rows every 5 minutes
+// and writes a warning starting with "ALERT" for each; this rule emails when any such line arrives.
+resource appConditionAlert 'Microsoft.Insights/scheduledQueryRules@2022-06-15' = {
+  name: '${appName}-app-conditions'
+  location: location
+  properties: {
+    displayName: 'Campaign tool: failed > 2%, stalled campaign, or Unknown recipients'
+    severity: 2
+    enabled: true
+    scopes: [ appInsights.id ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: 'traces | where message has "ALERT"'
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: { numberOfEvaluationPeriods: 1, minFailingPeriodsToAlert: 1 }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: { actionGroups: [ alertGroup.id ] }
+  }
+}
+
+resource webhook5xxAlert 'Microsoft.Insights/scheduledQueryRules@2022-06-15' = {
+  name: '${appName}-webhook-5xx'
+  location: location
+  properties: {
+    displayName: 'Campaign tool: delivery-report webhook returned 5xx more than 5 times in 5 minutes'
+    severity: 2
+    enabled: true
+    scopes: [ appInsights.id ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT5M'
+    criteria: {
+      allOf: [
+        {
+          query: 'requests | where url has "/webhooks/acs" and toint(resultCode) >= 500'
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 5
+          failingPeriods: { numberOfEvaluationPeriods: 1, minFailingPeriodsToAlert: 1 }
+        }
+      ]
+    }
+    autoMitigate: true
+    actions: { actionGroups: [ alertGroup.id ] }
+  }
+}
+
+resource cpuAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+  name: '${appName}-cpu'
+  location: 'global'
+  properties: {
+    description: 'App Service plan CPU above 80% for 15 minutes'
+    severity: 2
+    enabled: true
+    scopes: [ plan.id ]
+    evaluationFrequency: 'PT5M'
+    windowSize: 'PT15M'
+    criteria: {
+      'odata.type': 'Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria'
+      allOf: [
+        { name: 'cpu', criterionType: 'StaticThresholdCriterion', metricName: 'CpuPercentage', operator: 'GreaterThan', threshold: 80, timeAggregation: 'Average' }
+      ]
+    }
+    actions: [ { actionGroupId: alertGroup.id } ]
+  }
+}
+
+resource sqlStorageAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+  name: '${appName}-sql-storage'
+  location: 'global'
+  properties: {
+    description: 'SQL database above 80% of its 2 GB'
+    severity: 2
+    enabled: true
+    scopes: [ sqlDb.id ]
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    criteria: {
+      'odata.type': 'Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria'
+      allOf: [
+        { name: 'storage', criterionType: 'StaticThresholdCriterion', metricName: 'storage_percent', operator: 'GreaterThan', threshold: 80, timeAggregation: 'Maximum' }
+      ]
+    }
+    actions: [ { actionGroupId: alertGroup.id } ]
   }
 }
 

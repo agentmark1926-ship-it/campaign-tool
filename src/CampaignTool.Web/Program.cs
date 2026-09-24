@@ -58,6 +58,11 @@ builder.Services.AddScoped<CampaignService>();
 builder.Services.AddScoped<CampaignSender>();
 builder.Services.AddScoped<UnsubscribeService>();
 builder.Services.AddHostedService<CampaignWorker>();
+builder.Services.AddScoped<RetentionService>();
+builder.Services.AddScoped<AlertMonitor>();
+builder.Services.AddSingleton<DnsClient.ILookupClient>(new DnsClient.LookupClient());
+builder.Services.AddScoped<DnsCheckService>();
+builder.Services.AddHostedService<RetentionWorker>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

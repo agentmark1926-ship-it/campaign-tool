@@ -4,6 +4,7 @@
 @inject TestEmailService TestEmail
 @inject ISnackbar Snackbar
 @inject AppDbContext Db
+@inject DnsCheckService Dns
 
 <PageTitle>Settings</PageTitle>
 
@@ -84,6 +85,30 @@
     </MudSimpleTable>
 </MudPaper>
 
+<MudPaper Class="pa-4 mt-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Check DNS</MudText>
+    <MudText Typo="Typo.body2" Class="mb-2">Checks the five records a custom sending domain needs. Run it after your DNS host adds them.</MudText>
+    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+        <MudTextField @bind-Value="_dnsDomain" Label="Sending domain" Variant="Variant.Outlined" Placeholder="e.g. news.self-storagedevelopers.com" Style="max-width:420px" />
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="CheckDnsAsync" Disabled="_busy || string.IsNullOrWhiteSpace(_dnsDomain)">Check DNS</MudButton>
+    </MudStack>
+    @if (_dns is not null)
+    {
+        <MudSimpleTable Dense="true" Class="mt-3">
+            <thead><tr><th></th><th>Record</th><th>Host</th><th>Found</th><th>Expected</th></tr></thead>
+            <tbody>
+                @foreach (var c in _dns)
+                {
+                    <tr>
+                        <td><MudIcon Icon="@(c.Pass ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)" Color="@(c.Pass ? Color.Success : Color.Error)" Size="Size.Small" /></td>
+                        <td>@c.Record</td><td style="word-break:break-all">@c.Host</td><td style="word-break:break-all">@c.Found</td><td>@c.Expected</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
 @code {
     private EffectiveSettings? _settings;
     private IReadOnlyList<string> _errors = [];
@@ -92,10 +117,22 @@
     private bool _busy;
 
     private List<EmailEvent> _events = [];
+    private string _dnsDomain = "";
+    private IReadOnlyList<DnsCheckService.Check>? _dns;
+
+    private async Task CheckDnsAsync()
+    {
+        _busy = true;
+        try { _dns = await Dns.CheckAsync(_dnsDomain); }
+        catch (DnsClient.DnsResponseException ex) { Snackbar.Add($"DNS lookup failed: {ex.Message}", Severity.Warning); }
+        finally { _busy = false; }
+    }
 
     protected override async Task OnInitializedAsync()
     {
         _settings = await SettingsService.GetAsync();
+        var senderDomain = _settings.SenderAddress.Split('@').LastOrDefault() ?? "";
+        _dnsDomain = senderDomain.EndsWith("azurecomm.net") ? "" : senderDomain; // the free test domain needs no DNS
         await LoadEventsAsync();
     }
 

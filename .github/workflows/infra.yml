@@ -1,0 +1,84 @@
+name: infra
+
+# Redeploys infra/main.bicep on demand, reusing the secrets already in the Web App's settings so nothing rotates
+# (a new Auth:UnsubscribeKey would break the unsubscribe links in every email already sent).
+# Optionally proves point-in-time restore by restoring the database to a scratch copy and deleting it.
+# Runs as the same OIDC deploy identity as deploy.yml (Contributor on the resource group).
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Redeploy infra/main.bicep
+        type: boolean
+        default: true
+      link_domain:
+        description: Send from the custom domain (only after it shows Verified in the portal)
+        type: boolean
+        default: false
+      create_sender_username:
+        description: Create the extra MailFrom address (only after the ACS quota increase is approved)
+        type: boolean
+        default: false
+      verify_restore:
+        description: Restore the database to a scratch copy (15 minutes ago), check it, delete it
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Find the resource group
+        run: |
+          rg=$(az webapp list --query "[?name=='${{ vars.AZURE_WEBAPP_NAME }}'].resourceGroup | [0]" -o tsv)
+          test -n "$rg" || { echo "Web App ${{ vars.AZURE_WEBAPP_NAME }} not found"; exit 1; }
+          echo "RG=$rg" >> "$GITHUB_ENV"
+
+      - name: Redeploy with the current secrets
+        if: ${{ inputs.deploy }}
+        run: |
+          settings=$(az webapp config appsettings list -g "$RG" -n "${{ vars.AZURE_WEBAPP_NAME }}" -o json)
+          get() { echo "$settings" | jq -r --arg n "$1" '.[] | select(.name==$n) | .value'; }
+          export ENTRA_CLIENT_SECRET=$(get MICROSOFT_PROVIDER_AUTHENTICATION_SECRET)
+          export WEBHOOK_SECRET=$(get Webhooks__AcsSecret)
+          export UNSUBSCRIBE_KEY=$(get Auth__UnsubscribeKey)
+          export ANTHROPIC_API_KEY=$(get Ai__AnthropicApiKey)
+          export SQL_ADMIN_PASSWORD=$(get ConnectionStrings__Sql | sed -n 's/.*Password=\([^;]*\);.*/\1/p')
+          for v in "$ENTRA_CLIENT_SECRET" "$WEBHOOK_SECRET" "$UNSUBSCRIBE_KEY" "$ANTHROPIC_API_KEY" "$SQL_ADMIN_PASSWORD"; do
+            if [ -n "$v" ]; then echo "::add-mask::$v"; fi
+          done
+          for name in ENTRA_CLIENT_SECRET WEBHOOK_SECRET UNSUBSCRIBE_KEY SQL_ADMIN_PASSWORD; do
+            test -n "${!name}" || { echo "Could not read $name from the Web App settings; refusing to deploy a blank secret."; exit 1; }
+          done
+          az deployment group create -g "$RG" -n "infra-${{ github.run_number }}" \
+            -f infra/main.bicep -p infra/main.bicepparam \
+            -p createEventSubscription=true \
+               linkDomain=${{ inputs.link_domain }} \
+               createSenderUsername=${{ inputs.create_sender_username }} \
+            --query "properties.{state:provisioningState, outputs:outputs}" -o json
+
+      - name: Verify point-in-time restore
+        if: ${{ inputs.verify_restore }}
+        run: |
+          server=$(az sql server list -g "$RG" --query "[0].name" -o tsv)
+          when=$(date -u -d '-15 minutes' +%Y-%m-%dT%H:%M:%SZ)
+          echo "Restoring campaigns as of $when to campaigns-restore-check on $server…"
+          az sql db restore -g "$RG" -s "$server" -n campaigns --dest-name campaigns-restore-check --time "$when" --service-objective Basic -o none
+          status=$(az sql db show -g "$RG" -s "$server" -n campaigns-restore-check --query status -o tsv)
+          echo "Restored copy status: $status"
+          az sql db delete -g "$RG" -s "$server" -n campaigns-restore-check --yes
+          test "$status" = "Online"
+          echo "Point-in-time restore verified ($when)."

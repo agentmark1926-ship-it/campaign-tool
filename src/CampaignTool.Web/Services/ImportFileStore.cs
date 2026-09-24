@@ -30,6 +30,19 @@ public class ImportFileStore(IConfiguration config, IOptions<StorageOptions> sto
         return path;
     }
 
+    public async Task DeleteAsync(string path, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_connection))
+        {
+            var file = Path.Combine(LocalRoot, path);
+            if (File.Exists(file)) File.Delete(file);
+        }
+        else
+        {
+            await Container.GetBlobClient(path).DeleteIfExistsAsync(cancellationToken: ct);
+        }
+    }
+
     public async Task<Stream> OpenReadAsync(string path, CancellationToken ct = default) =>
         string.IsNullOrWhiteSpace(_connection)
             ? File.OpenRead(Path.Combine(LocalRoot, path))

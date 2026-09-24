@@ -9,8 +9,8 @@ Maintained by Claude Code. One entry per phase.
 | 3 Contacts | done in code; deployed (run 35931498833) | deployed | import the real subscriber file and confirm counts |
 | 4 Templates and editor | done (owner's HTML / plain text + AI writer design) | AI draft and test email verified in the owner's Outlook inbox (2026-09-24) | |
 | 5 Campaigns and sending | code done, tests green | deployed (run 35968052750) | send a campaign to your own addresses |
-| 6 Results and unsubscribe | code done, tests green (92) | not yet | merge; unsubscribe from a seed inbox; check Delivered counts |
-| 7 Hardening | not started | | |
+| 6 Results and unsubscribe | code done, tests green | deployed | unsubscribe from a seed inbox; check Delivered counts |
+| 7 Hardening | code done, tests green (95) | not yet | merge; run the infra workflow (alerts + restore check) |
 
 ## Phase 1 — Foundation
 
@@ -143,3 +143,19 @@ Done and verified locally (tests, plus a browser run: 40-recipient campaign → 
 - The browser run caught a per-link query EF Core couldn't translate; fixed, and a test now renders the results page with click data.
 
 Tests (7 new): each delivery status → recipient/counter/contact/suppression, duplicate EventId ignored, late contradictory event ignored; third soft bounce → hard; click counted once per recipient with every click kept, and the results page lists the links; FilteredSpam pause; unsubscribe page, button, one-click POST, no double count, tampered token, next campaign excludes the unsubscribed; unsubscribe after the campaign is deleted; recipient export is behind sign-in and has every row.
+
+## Phase 7 — Hardening
+
+Done and verified locally:
+
+- `RetentionWorker` (the spec's nightly worker): at 3 AM in `App:TimeZone` deletes raw `EmailEvents` older than `Retention:EventMonths` (in batches of 5,000) and uploaded import files older than 30 days (blob or local); campaign counters untouched. Every 5 minutes it also runs the alert checks.
+- `AlertMonitor`: writes an `ALERT …` warning for recipient Failed above 2% of Recipients (campaigns sending, paused, or finished in the last 7 days), a campaign in Sending with no batch for 30 minutes **while work is due and the rate limit allows sending** (waiting out the hourly cap is normal and doesn't alert), and Unknown rows above 0.
+- Azure Monitor in `infra/main.bicep`: action group emailing `alertEmail` (default: the first allowed user); log alert on App Insights traces containing "ALERT"; log alert on webhook 5xx above 5 in 5 minutes; metric alerts on App Service CPU above 80% for 15 minutes and SQL storage above 80%.
+- `.github/workflows/infra.yml` (manual): redeploys the Bicep reading the existing secrets from the Web App settings (so the unsubscribe key, webhook key, sign-in secret, SQL password and AI key never rotate by accident), with switches for the custom domain and the extra MailFrom address, and an optional point-in-time restore check (restore to a scratch copy 15 minutes back, confirm Online, delete). This is a second workflow beyond the spec's one: the Cloud Shell route proved fragile (ephemeral sessions, token expiry, secrets regenerated on every run).
+- Settings → **Check DNS**: resolves the verification TXT, SPF (exactly one record, including spf.protection.outlook.com), both DKIM CNAMEs, DMARC and MX for a domain, with pass/fail per row (DnsClient 1.8). Not exercised here: this build environment has no outbound DNS; the owner runs it in the app.
+- Bicep: click (engagement) tracking on the custom domain follows `createSenderUsername` (both need the quota increase), so a redeploy can't switch off tracking turned on elsewhere.
+- README runbook: redeploy without rotating secrets, rotate each secret (and why not to rotate the unsubscribe key), raise sending limits, switch to the custom domain and add a sender address, verify and perform a database restore, what each alert means, the stale sign-in fix, retention, reply-based removals, warm-up.
+
+Tests (3 new): retention deletes only old events and old import files and keeps counters; alerts fire for failed share and Unknown rows but not healthy campaigns; the stall alert fires only when work is due and the limiter allows sending.
+
+Waiting on the owner: merge; then run GitHub → Actions → **infra** once with *Redeploy* and *verify restore* ticked (or ask Claude Code to start it) — that creates the alerts and proves the restore.
