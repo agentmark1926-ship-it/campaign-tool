@@ -4,16 +4,17 @@
 //   az group create -n <rg> -l eastus2
 //   az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam
 //
-// Until linkDomain=true, mail is sent from the free Azure-managed test domain (DoNotReply@<id>.azurecomm.net).
+// The free Azure-managed test domain (DoNotReply@<id>.azurecomm.net) is always linked, so sending works before any DNS exists.
+// Custom domains: list each in senderDomains (Azure creates it and prints its DNS records), then add it to verifiedDomains once
+// the portal shows it Verified; every verified domain is linked and becomes a choice in the app's From dropdown.
 //
 // Later, flip these parameters and redeploy (each is a separate step because Azure validates them synchronously):
-//   linkDomain=true              after the email domain shows "Verified" in the portal (DNS records added)
 //   createEventSubscription=true after the app is deployed and answering POST /webhooks/acs
 //   createSenderUsername=true    after the ACS email quota increase is approved (extra MailFrom addresses are blocked on the default quota; also enables click tracking)
 //
 // Use the GitHub 'infra' workflow for redeploys: it reuses the secrets already in the Web App's settings.
 //
-// The `dnsRecords` output prints the exact TXT/CNAME values to add for the sending subdomain.
+// The `dnsRecords` output prints the exact TXT/CNAME values to add for each sending domain.
 
 targetScope = 'resourceGroup'
 
@@ -54,12 +55,16 @@ param unsubscribeKey string
 @description('Anthropic API key for the AI email writer (optional; the writer is disabled without it).')
 param anthropicApiKey string = ''
 
-@description('Sending subdomain, e.g. news.yourdomain.com')
-param senderDomain string
+@description('Custom sending domains to register in Azure, e.g. [\'news.yourdomain.com\']. Each gets its own DNS records (see the dnsRecords output).')
+param senderDomains array = []
 
-@description('Extra MailFrom username to create once the quota increase is approved. DoNotReply@<senderDomain> exists by default.')
+@description('The subset of senderDomains that shows Verified in the portal. Only these are linked and offered as From addresses; the first is the default.')
+param verifiedDomains array = []
+
+@description('Extra MailFrom username to create on each verified domain once the quota increase is approved. DoNotReply@<domain> exists by default.')
 param senderUsername string = 'updates'
 
+@description('The name recipients see next to the From address.')
 param senderDisplayName string = 'Updates'
 
 @description('App Service Linux runtime. Use DOTNETCORE|8.0 if 10.0 is not offered in your region yet.')
@@ -73,7 +78,6 @@ param timeZone string = 'America/Chicago'
 @description('Where Azure Monitor alerts are emailed. Defaults to the first allowed user.')
 param alertEmail string = first(split(allowedUsers, ','))
 
-param linkDomain bool = false
 param createEventSubscription bool = false
 param createSenderUsername bool = false
 
@@ -189,19 +193,18 @@ resource emailService 'Microsoft.Communication/emailServices@2023-04-01' = {
   }
 }
 
-resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' = {
+resource emailDomains 'Microsoft.Communication/emailServices/domains@2023-04-01' = [for domain in senderDomains: {
   parent: emailService
-  name: senderDomain
+  name: domain
   location: 'global'
   properties: {
     domainManagement: 'CustomerManaged'
     // Click tracking is only allowed after the quota increase, the same moment the extra MailFrom address is created.
     userEngagementTracking: createSenderUsername ? 'Enabled' : 'Disabled'
   }
-}
+}]
 
-// Free Azure-managed test domain (<id>.azurecomm.net): works without DNS, low sending limits.
-// It is the linked sender domain until linkDomain=true switches to the custom domain.
+// Free Azure-managed test domain (<id>.azurecomm.net): works without DNS, low sending limits. Always linked.
 resource testDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' = {
   parent: emailService
   name: 'AzureManagedDomain'
@@ -212,23 +215,37 @@ resource testDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' =
   }
 }
 
-resource senderUser 'Microsoft.Communication/emailServices/domains/senderUsernames@2023-04-01' = if (createSenderUsername) {
-  parent: emailDomain
-  name: senderUsername
+// Sets the display name on the default DoNotReply address of each verified domain.
+resource doNotReplyUsers 'Microsoft.Communication/emailServices/domains/senderUsernames@2023-04-01' = [for domain in verifiedDomains: {
+  name: '${emailServiceName}/${domain}/donotreply'
+  properties: {
+    username: 'DoNotReply'
+    displayName: senderDisplayName
+  }
+  dependsOn: [ emailDomains ]
+}]
+
+resource senderUsers 'Microsoft.Communication/emailServices/domains/senderUsernames@2023-04-01' = [for domain in (createSenderUsername ? verifiedDomains : []): {
+  name: '${emailServiceName}/${domain}/${senderUsername}'
   properties: {
     username: senderUsername
     displayName: senderDisplayName
   }
-}
+  dependsOn: [ emailDomains ]
+}]
 
 resource acs 'Microsoft.Communication/communicationServices@2023-04-01' = {
   name: acsName
   location: 'global'
   properties: {
     dataLocation: 'United States'
-    linkedDomains: linkDomain ? [ emailDomain.id ] : [ testDomain.id ]
+    linkedDomains: concat([ testDomain.id ], map(verifiedDomains, d => resourceId('Microsoft.Communication/emailServices/domains', emailServiceName, d)))
   }
+  dependsOn: [ emailDomains ]
 }
+
+var testSender = 'DoNotReply@${testDomain.properties.mailFromSenderDomain}'
+var customSenders = flatten(map(verifiedDomains, d => createSenderUsername ? [ '${senderUsername}@${d}', 'DoNotReply@${d}' ] : [ 'DoNotReply@${d}' ]))
 
 // ---------- App Service ----------
 
@@ -265,7 +282,8 @@ resource web 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'ConnectionStrings__Sql', value: sqlConnectionString }
         { name: 'ConnectionStrings__Storage', value: storageConnectionString }
         { name: 'Acs__ConnectionString', value: acs.listKeys().primaryConnectionString }
-        { name: 'Acs__SenderAddress', value: !linkDomain ? 'DoNotReply@${testDomain.properties.mailFromSenderDomain}' : (createSenderUsername ? '${senderUsername}@${senderDomain}' : 'DoNotReply@${senderDomain}') }
+        { name: 'Acs__SenderAddress', value: empty(customSenders) ? testSender : customSenders[0] }
+        { name: 'Acs__SenderAddresses', value: join(concat(customSenders, [ testSender ]), ',') }
         { name: 'Webhooks__AcsSecret', value: webhookSecret }
         { name: 'Auth__UnsubscribeKey', value: unsubscribeKey }
         { name: 'Auth__AllowedUsers', value: allowedUsers }
@@ -477,7 +495,9 @@ output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output storageAccountName string = storage.name
 output acsResourceName string = acs.name
 output emailServiceName string = emailService.name
-output senderDomainName string = emailDomain.name
-output testSenderAddress string = 'DoNotReply@${testDomain.properties.mailFromSenderDomain}'
-@description('DNS records to add for the sending subdomain (Domain verification TXT, SPF TXT, DKIM/DKIM2 CNAMEs, DMARC TXT).')
-output dnsRecords object = emailDomain.properties.verificationRecords
+output testSenderAddress string = testSender
+@description('DNS records to add for each sending domain (Domain verification TXT, SPF TXT, DKIM/DKIM2 CNAMEs, DMARC TXT).')
+output dnsRecords array = [for (domain, i) in senderDomains: {
+  domain: domain
+  records: emailDomains[i].properties.verificationRecords
+}]

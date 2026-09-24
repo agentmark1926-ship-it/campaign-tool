@@ -12,10 +12,6 @@ on:
         description: Redeploy infra/main.bicep
         type: boolean
         default: true
-      link_domain:
-        description: Send from the custom domain (only after it shows Verified in the portal)
-        type: boolean
-        default: false
       create_sender_username:
         description: Create the extra MailFrom address (only after the ACS quota increase is approved)
         type: boolean
@@ -66,7 +62,6 @@ jobs:
           az deployment group create -g "$RG" -n "infra-${{ github.run_number }}" \
             -f infra/main.bicep -p infra/main.bicepparam \
             -p createEventSubscription=true \
-               linkDomain=${{ inputs.link_domain }} \
                createSenderUsername=${{ inputs.create_sender_username }} \
             --query "properties.{state:provisioningState, outputs:outputs}" -o json
 

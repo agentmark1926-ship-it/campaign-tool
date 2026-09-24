@@ -61,11 +61,15 @@ public class CampaignService(AppDbContext db, SettingsService settings, Unsubscr
     {
         var c = await db.Campaigns.SingleAsync(x => x.Id == edited.Id, ct);
         if (c.Status != CampaignStatus.Draft) return "This campaign is no longer a draft, so it can't be edited.";
+        var s = await settings.GetAsync(ct);
         if (TemplateRenderer.Validate(edited.Subject) is { } se) return $"The subject's merge field doesn't parse: {se}";
         if (TemplateRenderer.Validate(edited.Body) is { } be) return $"A merge field in the email doesn't parse: {be}";
         c.Name = edited.Name.Trim();
         c.Subject = edited.Subject.Trim();
         c.Preheader = string.IsNullOrWhiteSpace(edited.Preheader) ? null : edited.Preheader.Trim();
+        if (!s.AllowedSenders.Contains(edited.FromEmail, StringComparer.OrdinalIgnoreCase))
+            return $"'{edited.FromEmail}' isn't set up in Azure; pick a From address from the list.";
+        c.FromEmail = edited.FromEmail;
         c.ReplyTo = string.IsNullOrWhiteSpace(edited.ReplyTo) ? null : EmailRules.Normalize(edited.ReplyTo);
         c.ListId = edited.ListId;
         c.ExcludeListIds = edited.ExcludeListIds;
@@ -95,6 +99,8 @@ public class CampaignService(AppDbContext db, SettingsService settings, Unsubscr
         if (string.IsNullOrWhiteSpace(c.Subject)) return "Add a subject line.";
         if (string.IsNullOrWhiteSpace(c.Body)) return "Add the email content.";
         if (string.IsNullOrWhiteSpace(c.ReplyTo)) return "Add a reply-to address that someone reads.";
+        if (!s.AllowedSenders.Contains(c.FromEmail, StringComparer.OrdinalIgnoreCase))
+            return $"The From address {c.FromEmail} is no longer set up in Azure; pick another on the Setup tab.";
         if (!await db.Lists.AnyAsync(l => l.Id == c.ListId, ct)) return "Choose the list to send to.";
         if (!await Sendable(c.ListId, ExcludedLists(c)).AnyAsync(ct)) return "Nobody on that list can be sent to (after unsubscribes, bounces, suppressions and exclusions).";
         return null;

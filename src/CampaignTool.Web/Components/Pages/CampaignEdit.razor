@@ -32,7 +32,12 @@
             <MudTextField @bind-Value="_c.Name" Label="Campaign name (internal)" Variant="Variant.Outlined" />
             <MudTextField @bind-Value="_c.Subject" Label="Subject line" Variant="Variant.Outlined" HelperText="Merge fields work here, e.g. {{ first_name | default: &quot;there&quot; }}, your October update" />
             <MudTextField @bind-Value="_c.Preheader" Label="Preheader (optional)" Variant="Variant.Outlined" HelperText="The grey preview line after the subject in most inboxes (HTML emails)." />
-            <MudTextField Value="_c.FromEmail" Label="From" ReadOnly="true" Variant="Variant.Outlined" HelperText="The sending address configured in Azure." />
+            <MudSelect T="string" @bind-Value="_c.FromEmail" Label="From" Variant="Variant.Outlined" HelperText="Addresses on the domains verified in Azure. The default is set in Settings.">
+                @foreach (var a in _senders)
+                {
+                    <MudSelectItem T="string" Value="a">@a</MudSelectItem>
+                }
+            </MudSelect>
             <MudTextField @bind-Value="_c.ReplyTo" Label="Reply-to" Variant="Variant.Outlined" HelperText="A mailbox someone reads; replies go here." />
             <div><MudButton Variant="Variant.Outlined" OnClick="@(() => NextAsync())">Next: content</MudButton></div>
         </MudStack>
@@ -134,6 +139,7 @@
     private string _tz = "UTC", _limits = "", _testAddresses = "";
     private string? _problem;
     private List<Named> _lists = [];
+    private IReadOnlyList<string> _senders = [];
     private List<TemplateRef> _templates = [];
     private IReadOnlyCollection<int> _excluded = [];
     private IReadOnlyList<TestEmailService.Outcome>? _outcomes;
@@ -161,6 +167,7 @@
         if (_c.Status != CampaignStatus.Draft) { Nav.NavigateTo($"/campaigns/{Id}", replace: true); return; }
         var s = await SettingsService.GetAsync();
         _tz = s.TimeZone;
+        _senders = s.AllowedSenders.Contains(_c.FromEmail, StringComparer.OrdinalIgnoreCase) ? s.AllowedSenders : [.. s.AllowedSenders, _c.FromEmail];
         _perHour = s.MaxPerHour;
         _perMinute = s.MaxPerMinute;
         _limits = $"{s.MaxPerMinute}/minute and {s.MaxPerHour}/hour";

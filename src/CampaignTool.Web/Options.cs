@@ -24,6 +24,16 @@ public class AcsOptions
 {
     public string ConnectionString { get; set; } = "";
     public string SenderAddress { get; set; } = "";
+
+    /// <summary>Comma-separated MailFrom addresses on every linked domain, set by the Bicep; the owner picks one in Settings.</summary>
+    public string SenderAddresses { get; set; } = "";
+
+    public IReadOnlyList<string> AllowedSenders() =>
+        SenderAddresses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Prepend(SenderAddress).Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    public bool IsAllowedSender(string? address) =>
+        !string.IsNullOrWhiteSpace(address) && AllowedSenders().Contains(address.Trim(), StringComparer.OrdinalIgnoreCase);
 }
 
 public class WebhookOptions

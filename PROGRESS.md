@@ -162,6 +162,16 @@ Waiting on the owner: merge; then run GitHub → Actions → **infra** once with
 
 Verified in Azure: the **infra** workflow (run 35981697117, started from chat on the owner's request) redeployed `infra/main.bicep` with the secrets read from the Web App — the action group, both log alerts and both metric alerts now exist and the Event Grid subscription is managed by the Bicep — then restored `campaigns` to `campaigns-restore-check` as of 15 minutes earlier, confirmed it Online, and deleted it (3.5 minutes).
 
+## After Phase 7 — choose the sending domain in the app
+
+The owner asked to switch sending domains without Azure work each time (they own several domains at Namecheap).
+
+- Bicep: `senderDomain` / `linkDomain` replaced by `senderDomains` (registered in Azure; `dnsRecords` output now lists each domain's records) and `verifiedDomains` (linked alongside the always-linked test domain). `Acs__SenderAddresses` lists every usable MailFrom address; the default is the first verified domain, else the test domain. Verified domains get the display name `senderDisplayName` ("Self Storage Developers") on DoNotReply. The infra workflow's *custom domain* switch is gone: the domain lists live in `main.bicepparam`.
+- App: Settings → **From address** is a dropdown of those addresses (saved choice ignored if its domain is later unlinked); each campaign's Setup tab has its own From dropdown, validated on save and again before sending; test sends and campaign sends pass the chosen address to ACS.
+- README: "Add a sending domain" with Namecheap Advanced DNS steps.
+
+Tests (2 new, 97 total): switching the Settings sender to a linked domain (and rejecting an unknown one) with the test email sent from it; a campaign sends from the address picked on its Setup tab and rejects one not in Azure.
+
 ## MVP status
 
 All seven phases are built, tested (95 tests) and deployed. The spec's MVP definition also needs one real campaign to the day-2 warm-up slice with bounces under 2%, which waits on the owner items in BLOCKERS.md: seed test, subscriber import, custom (sub)domain, ACS quota.

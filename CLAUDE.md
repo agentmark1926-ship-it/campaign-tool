@@ -51,5 +51,5 @@ dotnet ef migrations add <PhaseN_Name> --project src/CampaignTool.Web
 2. `az deployment group create … infra/main.bicep` with all flags false. Read the `dnsRecords` output → owner adds DNS records.
 3. Owner files the ACS email quota request (portal → Help + support → quotas → "Azure Communication Services Email: Sending Limits").
 4. Push to `main` → workflow deploys the app → `/health` is 200.
-5. Redeploy with `linkDomain=true` once the domain shows Verified; then `createEventSubscription=true` (needs the app up to answer the handshake); then `createSenderUsername=true` after the quota is approved. Until then the sender is `DoNotReply@<domain>`.
+5. Redeploy with the domain added to `verifiedDomains` once it shows Verified; then `createEventSubscription=true` (needs the app up to answer the handshake); then `createSenderUsername=true` after the quota is approved. Until then the sender is `DoNotReply@<domain>`.
 6. Enable engagement (click) tracking on the ACS domain in the portal after the quota is approved.

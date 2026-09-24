@@ -59,18 +59,23 @@ All live only in the Web App's settings (portal → `ashiwaju-web` → **Setting
 
 1. Wait for Microsoft to approve the ACS email quota request, and note the granted per-minute and per-hour numbers.
 2. App → **Settings** → **Sending limits**: set per-minute and per-hour at or below the granted numbers → **Save**. Takes effect on the next batch; no restart.
-3. Click tracking: once you send from your own domain, run the **infra** workflow with **Send from the custom domain** and **Create the extra MailFrom address** ticked; that also switches on engagement (click) tracking for the domain. (Turning it on in the portal instead would be switched off again by the next infra run.)
+3. Click tracking: once you send from your own domain, once your domain is in `verifiedDomains`, run the **infra** workflow with **Create the extra MailFrom address** ticked; that also switches on engagement (click) tracking for the domain. (Turning it on in the portal instead would be switched off again by the next infra run.)
 
 Never set the limits above what Microsoft granted: ACS returns 429s and the worker retries them on the 1 min / 5 min / 30 min / 2 h / 6 h backoff.
 
-## Switch from the Azure test domain to your own domain (and add a sender address)
+## Add a sending domain (and switch the From address)
 
-1. Have the DNS host add the records from the Bicep `dnsRecords` output (verification TXT, two DKIM CNAMEs; keep the existing SPF, MX and DMARC). Use a subdomain such as `news.self-storagedevelopers.com` before real campaigns; to change it, edit `senderDomain` in `infra/main.bicepparam` and run the **infra** workflow first to get that domain's records.
-2. App → **Settings** → **Check DNS**: all rows green.
-3. Portal → `ashiwaju-email` → **Provision domains** → the domain → **Verify** each record until it shows **Verified**.
-4. GitHub → Actions → **infra** → Run workflow with **Send from the custom domain** ticked. The sender becomes `DoNotReply@<domain>`.
-5. After the quota increase is approved, run **infra** again with both **custom domain** and **Create the extra MailFrom address** ticked. Click tracking switches on and the sender becomes `updates@<domain>` (display name "Updates"; change `senderUsername` / `senderDisplayName` in `main.bicep` first if you want different ones).
-6. Send a test from Settings to your seed inboxes and check it isn't in spam before any campaign.
+The app can send from any domain that is verified in Azure; each verified domain appears in the **From** dropdown in Settings (the default) and on each campaign's Setup tab. The free Azure test domain always stays available.
+
+1. In `infra/main.bicepparam`, add the domain to `senderDomains` (e.g. `'news.example.com'` or a separate domain you own) and push to `main`.
+2. GitHub → Actions → **infra** → Run workflow. The run's output (`dnsRecords`) lists that domain's records: a verification TXT, an SPF TXT, two DKIM CNAMEs and a DMARC TXT.
+3. Add them at the domain's DNS host. In Namecheap: Domain List → **Manage** → **Advanced DNS** → **Add new record**. The *Host* is the part before the domain (`@` for the domain itself, `selector1-azurecomm-prod-net._domainkey` for DKIM, `_dmarc` for DMARC). There must be exactly one SPF (`v=spf1`) record per host: merge with any existing one. Add an MX record (Namecheap's free email forwarding creates one) so replies and bounce checks work.
+4. App → **Settings** → **Check DNS** with the domain: all rows green.
+5. Portal → `ashiwaju-email` → **Provision domains** → the domain → **Verify** until it shows **Verified**.
+6. Add the domain to `verifiedDomains` in `infra/main.bicepparam`, push, and run **infra** again. It links the domain and sets the display name (`senderDisplayName`, "Self Storage Developers").
+7. App → **Settings** → **From address** → pick `DoNotReply@<domain>` → **Save**. New campaigns and tests use it; a draft keeps its own choice on its Setup tab.
+8. After the quota increase is approved, run **infra** with **Create the extra MailFrom address** ticked: `updates@<domain>` appears in the dropdown and click tracking switches on.
+9. Send a test to your seed inboxes and check it isn't in spam before any campaign. A new domain has no reputation: warm it up (a few hundred a day, roughly doubling every few days) before large sends.
 
 ## Restore the database
 

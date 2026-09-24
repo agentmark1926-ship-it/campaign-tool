@@ -43,6 +43,7 @@ public class CampaignSendingTests : IAsyncLifetime
         _app.Settings["App:BaseUrl"] = "https://campaigns.example.com";
         _app.Settings["Auth:UnsubscribeKey"] = "test-unsubscribe-key-0123456789abcdef";
         _app.Settings["Acs:SenderAddress"] = "DoNotReply@test.azurecomm.net";
+        _app.Settings["Acs:SenderAddresses"] = "DoNotReply@news.example.com,DoNotReply@test.azurecomm.net";
     }
 
     public Task InitializeAsync() { _app.CreateClient(); return Task.CompletedTask; }
@@ -162,6 +163,28 @@ public class CampaignSendingTests : IAsyncLifetime
         Assert.StartsWith("<https://campaigns.example.com/unsubscribe/", one.Headers!["List-Unsubscribe"]);
         Assert.Equal("List-Unsubscribe=One-Click", one.Headers["List-Unsubscribe-Post"]);
         Assert.Equal("owner@example.com", one.ReplyTo);
+        Assert.Equal("DoNotReply@test.azurecomm.net", one.From);
+    }
+
+    [Fact]
+    public async Task A_campaign_sends_from_the_address_chosen_on_its_setup_tab_and_rejects_unknown_ones()
+    {
+        var list = await SeedListAsync("FromPick", 2);
+        var id = await DraftAsync(list);
+        using (var scope = _app.Services.CreateScope())
+        {
+            var svc = scope.ServiceProvider.GetRequiredService<CampaignService>();
+            var c = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Campaigns.AsNoTracking().SingleAsync(x => x.Id == id);
+            c.FromEmail = "someone@not-in-azure.com";
+            Assert.Contains("isn't set up in Azure", await svc.SaveDraftAsync(c));
+            c.FromEmail = "DoNotReply@news.example.com";
+            Assert.Null(await svc.SaveDraftAsync(c));
+            Assert.Null(await svc.SendNowAsync(id));
+        }
+
+        await RunUntilDoneAsync(id);
+
+        Assert.All(_sender.Calls.Where(e => e.To.StartsWith("frompick")), e => Assert.Equal("DoNotReply@news.example.com", e.From));
     }
 
     [Fact]

@@ -8,6 +8,7 @@ namespace CampaignTool.Web.Services;
 public class EffectiveSettings
 {
     public string SenderAddress { get; set; } = "";
+    public IReadOnlyList<string> AllowedSenders { get; set; } = [];
     public string ReplyTo { get; set; } = "";
     public string MailingAddress { get; set; } = "";
     public string TimeZone { get; set; } = "";
@@ -17,7 +18,7 @@ public class EffectiveSettings
 
 public class SettingsService(AppDbContext db, IOptions<AppOptions> app, IOptions<SendingOptions> sending, IOptions<AcsOptions> acs, ILogger<SettingsService> log)
 {
-    private const string ReplyToKey = "ReplyTo", MailingAddressKey = "App:MailingAddress", TimeZoneKey = "App:TimeZone",
+    private const string SenderKey = "Acs:SenderAddress", ReplyToKey = "ReplyTo", MailingAddressKey = "App:MailingAddress", TimeZoneKey = "App:TimeZone",
         MaxPerMinuteKey = "Sending:MaxPerMinute", MaxPerHourKey = "Sending:MaxPerHour";
 
     public async Task<EffectiveSettings> GetAsync(CancellationToken ct = default)
@@ -28,7 +29,9 @@ public class SettingsService(AppDbContext db, IOptions<AppOptions> app, IOptions
 
         return new EffectiveSettings
         {
-            SenderAddress = acs.Value.SenderAddress,
+            // A saved choice counts only while its domain is still linked in Azure; otherwise fall back to the configured default.
+            SenderAddress = stored.TryGetValue(SenderKey, out var sender) && acs.Value.IsAllowedSender(sender) ? sender : acs.Value.SenderAddress,
+            AllowedSenders = acs.Value.AllowedSenders(),
             ReplyTo = Get(ReplyToKey, ""),
             MailingAddress = Get(MailingAddressKey, app.Value.MailingAddress),
             TimeZone = Get(TimeZoneKey, app.Value.TimeZone),
@@ -41,6 +44,8 @@ public class SettingsService(AppDbContext db, IOptions<AppOptions> app, IOptions
     public async Task<IReadOnlyList<string>> SaveAsync(EffectiveSettings s, CancellationToken ct = default)
     {
         var errors = new List<string>();
+        if (!acs.Value.IsAllowedSender(s.SenderAddress))
+            errors.Add($"'{s.SenderAddress}' isn't set up in Azure; pick one of: {string.Join(", ", acs.Value.AllowedSenders())}.");
         if (!EmailRules.IsValid(EmailRules.Normalize(s.ReplyTo)))
             errors.Add("Reply-to must be a monitored mailbox, e.g. you@yourdomain.com.");
         if (string.IsNullOrWhiteSpace(s.MailingAddress))
@@ -53,6 +58,7 @@ public class SettingsService(AppDbContext db, IOptions<AppOptions> app, IOptions
 
         var values = new Dictionary<string, string>
         {
+            [SenderKey] = s.SenderAddress.Trim(),
             [ReplyToKey] = EmailRules.Normalize(s.ReplyTo),
             [MailingAddressKey] = s.MailingAddress.Trim(),
             [TimeZoneKey] = (s.TimeZone ?? "").Trim(),
@@ -66,7 +72,7 @@ public class SettingsService(AppDbContext db, IOptions<AppOptions> app, IOptions
             else db.Settings.Add(new Setting { Key = key, Value = value });
         }
         await db.SaveChangesAsync(ct);
-        log.LogInformation("Settings saved: limits {MaxPerMinute}/min {MaxPerHour}/h, time zone {TimeZone}", s.MaxPerMinute, s.MaxPerHour, s.TimeZone);
+        log.LogInformation("Settings saved: sender {Sender}, limits {MaxPerMinute}/min {MaxPerHour}/h, time zone {TimeZone}", s.SenderAddress, s.MaxPerMinute, s.MaxPerHour, s.TimeZone);
         return errors;
     }
 }

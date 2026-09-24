@@ -12,6 +12,7 @@ public class SettingsAndTestEmailTests : IAsyncLifetime
     {
         _app.Settings["App:MailingAddress"] = "1 Test St, Miami, FL 33131";
         _app.Settings["Acs:SenderAddress"] = "DoNotReply@test.azurecomm.net";
+        _app.Settings["Acs:SenderAddresses"] = "DoNotReply@news.example.com,DoNotReply@test.azurecomm.net";
         _app.CreateClient();
         return Task.CompletedTask;
     }
@@ -44,6 +45,31 @@ public class SettingsAndTestEmailTests : IAsyncLifetime
             Assert.Equal(20, s.MaxPerMinute);
             Assert.Equal(80, s.MaxPerHour);
             Assert.Equal("America/New_York", s.TimeZone);
+        }
+    }
+
+    [Fact]
+    public async Task The_from_address_can_be_switched_to_any_linked_domain_and_test_emails_use_it()
+    {
+        using (var scope = _app.Services.CreateScope())
+        {
+            var service = Get<SettingsService>(scope);
+            var s = await service.GetAsync();
+            Assert.Equal(["DoNotReply@test.azurecomm.net", "DoNotReply@news.example.com"], s.AllowedSenders);
+            s.ReplyTo = "owner@example.com";
+
+            s.SenderAddress = "DoNotReply@elsewhere.com";
+            Assert.Contains(await service.SaveAsync(s), e => e.Contains("isn't set up in Azure"));
+
+            s.SenderAddress = "DoNotReply@news.example.com";
+            Assert.Empty(await service.SaveAsync(s));
+        }
+        using (var scope = _app.Services.CreateScope())
+        {
+            Assert.Equal("DoNotReply@news.example.com", (await Get<SettingsService>(scope).GetAsync()).SenderAddress);
+            var sender = (InMemoryEmailSender)Get<IEmailSender>(scope);
+            await Get<TestEmailService>(scope).SendAsync("from-check@example.com", "Hello", "<p>Hi</p>");
+            Assert.Equal("DoNotReply@news.example.com", sender.Sent.Single(x => x.Email.To == "from-check@example.com").Email.From);
         }
     }
 

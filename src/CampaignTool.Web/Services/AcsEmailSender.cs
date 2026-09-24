@@ -9,7 +9,7 @@ public class AcsEmailSender(EmailClient client, IOptions<AcsOptions> acs, ILogge
     public async Task<SendResult> SendAsync(OutgoingEmail email, CancellationToken ct = default)
     {
         var message = new EmailMessage(
-            senderAddress: acs.Value.SenderAddress,
+            senderAddress: string.IsNullOrWhiteSpace(email.From) ? acs.Value.SenderAddress : email.From,
             recipientAddress: email.To,
             content: new EmailContent(email.Subject) { Html = email.Html, PlainText = email.PlainText });
 

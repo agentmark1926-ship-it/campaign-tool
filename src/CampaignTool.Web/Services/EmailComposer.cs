@@ -24,14 +24,14 @@ public static class EmailComposer
         {
             var text = TemplateRenderer.RenderText(campaign.Text, contact);
             return new OutgoingEmail(contact.Email, subject, TemplateRenderer.TextToHtml(text) + htmlFooter, campaign.ReplyTo,
-                PlainText: $"{text}\n\n--\n{mailingAddress}\nUnsubscribe: {unsubscribeUrl}", Headers: headers);
+                PlainText: $"{text}\n\n--\n{mailingAddress}\nUnsubscribe: {unsubscribeUrl}", Headers: headers, From: campaign.FromEmail);
         }
 
         var html = TemplateRenderer.RenderHtml(campaign.Html, contact);
         var preheader = string.IsNullOrWhiteSpace(campaign.Preheader) ? "" :
             $"<div style=\"display:none;max-height:0;overflow:hidden;opacity:0\">{WebUtility.HtmlEncode(TemplateRenderer.RenderText(campaign.Preheader, contact))}</div>";
         return new OutgoingEmail(contact.Email, subject, InsertAfterBodyTag(html, preheader) is var withPre ? InsertBeforeBodyEnd(withPre, htmlFooter) : html,
-            campaign.ReplyTo, Headers: headers);
+            campaign.ReplyTo, Headers: headers, From: campaign.FromEmail);
     }
 
     private static string InsertAfterBodyTag(string html, string snippet)

@@ -6,13 +6,18 @@ using './main.bicep'
 param appName = 'ashiwaju'                       // 3-14 lowercase letters/digits
 param entraClientId = '96676af7-caee-4824-8e26-a5451355fa03'
 param allowedUsers = 'admin@self-storagedevelopers.com'
-param senderDomain = 'self-storagedevelopers.com'             // root domain during the build; switch to a subdomain before real sends
+// Sending domains. Add a domain to senderDomains and run the infra workflow to get its DNS records;
+// once the portal shows it Verified, add it to verifiedDomains and run the workflow again. It then appears in the app's From dropdown.
+param senderDomains = [
+  'self-storagedevelopers.com'
+]
+param verifiedDomains = []
+param senderDisplayName = 'Self Storage Developers'
 param mailingAddress = 'Self Storage Developers, 1101 Brickell Ave., 8th Fl, South Tower, Miami, FL 33131'
 param timeZone = 'America/Chicago'
 param linuxFxVersion = 'DOTNETCORE|10.0'
 
 // Flip these on later deployments, in this order (see comments at the top of main.bicep):
-param linkDomain = false
 param createEventSubscription = false
 param createSenderUsername = false
 

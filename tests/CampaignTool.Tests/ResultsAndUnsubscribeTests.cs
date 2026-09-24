@@ -33,6 +33,7 @@ public class ResultsAndUnsubscribeTests : IAsyncLifetime
         _app.Settings["App:BaseUrl"] = "https://campaigns.example.com";
         _app.Settings["Auth:UnsubscribeKey"] = "test-unsubscribe-key-0123456789abcdef";
         _app.Settings["Webhooks:AcsSecret"] = Key;
+        _app.Settings["Acs:SenderAddress"] = "DoNotReply@test.azurecomm.net";
     }
 
     public Task InitializeAsync() { _http = _app.CreateClient(new() { AllowAutoRedirect = false }); return Task.CompletedTask; }
