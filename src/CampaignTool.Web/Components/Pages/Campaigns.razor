@@ -1,0 +1,55 @@
+@page "/campaigns"
+@using CampaignTool.Web.Services
+@inject AppDbContext Db
+@inject CampaignService CampaignService
+@inject SettingsService SettingsService
+@inject NavigationManager Nav
+
+<PageTitle>Campaigns</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Campaigns</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NewAsync">New campaign</MudButton>
+</MudStack>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead><tr><th>Name</th><th>Status</th><th>List</th><th>Scheduled / sent</th><th>Recipients</th><th>Delivered</th><th>Clicks</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var c in _rows)
+            {
+                <tr style="cursor:pointer" @onclick="@(() => Open(c))">
+                    <td>@c.Name</td>
+                    <td><CampaignStatusChip Status="c.Status" /></td>
+                    <td>@(_lists.GetValueOrDefault(c.ListId) ?? "—")</td>
+                    <td>@TimeFormat.Local(c.StartedAtUtc ?? c.ScheduledAtUtc, _tz)</td>
+                    <td>@c.Recipients.ToString("N0")</td>
+                    <td>@(c.Sent == 0 ? "—" : $"{100.0 * c.Delivered / c.Sent:0.#}%")</td>
+                    <td>@c.Clicked.ToString("N0")</td>
+                    <td @onclick:stopPropagation="true"><MudButton Size="Size.Small" OnClick="@(() => DuplicateAsync(c.Id))">Duplicate</MudButton></td>
+                </tr>
+            }
+            @if (_rows.Count == 0) { <tr><td colspan="8">No campaigns yet.</td></tr> }
+        </tbody>
+    </MudSimpleTable>
+</MudPaper>
+
+@code {
+    private List<Campaign> _rows = [];
+    private Dictionary<int, string> _lists = [];
+    private string _tz = "UTC";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tz = (await SettingsService.GetAsync()).TimeZone;
+        _lists = await Db.Lists.ToDictionaryAsync(l => l.Id, l => l.Name);
+        _rows = await Db.Campaigns.AsNoTracking().OrderByDescending(c => c.Id).ToListAsync();
+    }
+
+    private void Open(Campaign c) => Nav.NavigateTo(c.Status == CampaignStatus.Draft ? $"/campaigns/{c.Id}/edit" : $"/campaigns/{c.Id}");
+
+    private async Task NewAsync() => Nav.NavigateTo($"/campaigns/{(await CampaignService.CreateAsync()).Id}/edit");
+
+    private async Task DuplicateAsync(int id) => Nav.NavigateTo($"/campaigns/{(await CampaignService.DuplicateAsync(id)).Id}/edit");
+}

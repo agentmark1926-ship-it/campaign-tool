@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Hosting;
 
 namespace CampaignTool.Tests.Infrastructure;
 
@@ -31,12 +33,25 @@ public class TestApp : WebApplicationFactory<Program>
     public string Environment { get; init; } = "Production";
     public Dictionary<string, string?> Settings { get; } = new() { ["Auth:AllowedUsers"] = "owner@example.com, second@example.com" };
 
+    /// <summary>False: the background CampaignWorker is not started, so a test drives sending itself.</summary>
+    public bool RunWorker { get; init; } = true;
+
+    /// <summary>Extra service replacements (fake clock, scripted email sender, …).</summary>
+    public Action<IServiceCollection>? ConfigureServices { get; init; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environment);
         builder.UseSetting("ConnectionStrings:Sql", ConnectionString);
         foreach (var (key, value) in Settings)
             builder.UseSetting(key, value);
+        builder.ConfigureTestServices(services =>
+        {
+            if (!RunWorker)
+                foreach (var d in services.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(CampaignTool.Web.Workers.CampaignWorker)).ToList())
+                    services.Remove(d);
+            ConfigureServices?.Invoke(services);
+        });
     }
 
     public AppDbContext NewDbContext() => TestSql.NewContext(ConnectionString);

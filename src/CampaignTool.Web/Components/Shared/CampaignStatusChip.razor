@@ -1,0 +1,15 @@
+<MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@ColorFor(Status)">@Status</MudChip>
+
+@code {
+    [Parameter] public CampaignStatus Status { get; set; }
+
+    private static Color ColorFor(CampaignStatus s) => s switch
+    {
+        CampaignStatus.Sending => Color.Primary,
+        CampaignStatus.Scheduled => Color.Info,
+        CampaignStatus.Paused => Color.Warning,
+        CampaignStatus.Completed => Color.Success,
+        CampaignStatus.Cancelled => Color.Error,
+        _ => Color.Default,
+    };
+}

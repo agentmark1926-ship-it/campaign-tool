@@ -50,6 +50,12 @@ builder.Services.AddScoped<ContactService>();
 builder.Services.AddSingleton<AssetStore>();
 builder.Services.AddScoped<TemplateService>();
 builder.Services.AddSingleton<AiEmailWriter>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<RateLimiter>();
+builder.Services.AddSingleton<CampaignProgressNotifier>();
+builder.Services.AddSingleton<UnsubscribeTokenService>();
+builder.Services.AddScoped<CampaignService>();
+builder.Services.AddScoped<CampaignSender>();
 builder.Services.AddHostedService<CampaignWorker>();
 
 builder.Services.AddRazorComponents()

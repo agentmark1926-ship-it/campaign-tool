@@ -67,6 +67,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         b.Entity<Campaign>(e =>
         {
+            e.Ignore(x => x.Body);
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.Subject).HasMaxLength(500);
             e.Property(x => x.Preheader).HasMaxLength(500);

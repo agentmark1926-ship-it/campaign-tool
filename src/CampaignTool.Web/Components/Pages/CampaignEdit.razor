@@ -1,0 +1,261 @@
+@page "/campaigns/{Id:int}/edit"
+@using System.Text.Json
+@using CampaignTool.Web.Services
+@inject AppDbContext Db
+@inject CampaignService CampaignService
+@inject SettingsService SettingsService
+@inject TestEmailService TestEmail
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<PageTitle>@(_c?.Name ?? "Campaign")</PageTitle>
+
+@if (_c is null)
+{
+    <MudText>@(_loaded ? "This campaign no longer exists." : "")</MudText>
+    return;
+}
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
+    <MudText Typo="Typo.h4">@_c.Name</MudText>
+    <CampaignStatusChip Status="_c.Status" />
+    <MudSpacer />
+    <MudButton Href="/campaigns" Variant="Variant.Text">Back</MudButton>
+    <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync">Delete draft</MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveAsync(true))" Disabled="_busy">Save</MudButton>
+</MudStack>
+
+<MudTabs @bind-ActivePanelIndex="_step" Elevation="1" Rounded="true" TabPanelsClass="pa-4" KeepPanelsAlive="true">
+    <MudTabPanel Text="1. Setup">
+        <MudStack Spacing="3" Style="max-width:720px">
+            <MudTextField @bind-Value="_c.Name" Label="Campaign name (internal)" Variant="Variant.Outlined" />
+            <MudTextField @bind-Value="_c.Subject" Label="Subject line" Variant="Variant.Outlined" HelperText="Merge fields work here, e.g. {{ first_name | default: &quot;there&quot; }}, your October update" />
+            <MudTextField @bind-Value="_c.Preheader" Label="Preheader (optional)" Variant="Variant.Outlined" HelperText="The grey preview line after the subject in most inboxes (HTML emails)." />
+            <MudTextField Value="_c.FromEmail" Label="From" ReadOnly="true" Variant="Variant.Outlined" HelperText="The sending address configured in Azure." />
+            <MudTextField @bind-Value="_c.ReplyTo" Label="Reply-to" Variant="Variant.Outlined" HelperText="A mailbox someone reads; replies go here." />
+            <div><MudButton Variant="Variant.Outlined" OnClick="@(() => NextAsync())">Next: content</MudButton></div>
+        </MudStack>
+    </MudTabPanel>
+
+    <MudTabPanel Text="2. Content">
+        <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center" Class="mb-3">
+            <MudSelect T="int?" Value="_c.TemplateId" ValueChanged="TemplateChosenAsync" Label="Start from a template (optional)" Variant="Variant.Outlined" Clearable="true" Style="max-width:420px">
+                @foreach (var t in _templates)
+                {
+                    <MudSelectItem T="int?" Value="t.Id">@t.Name (@(t.Format == TemplateFormat.Html ? "HTML" : "plain text"))</MudSelectItem>
+                }
+            </MudSelect>
+            <MudText Typo="Typo.caption">The template is copied into this campaign; later edits here don't change the template.</MudText>
+        </MudStack>
+        <EmailBodyEditor Format="_c.Format" FormatChanged="@(f => _c.Format = f)" Body="@_c.Body" BodyChanged="SetBody" Subject="@_c.Subject" />
+        <div class="mt-3"><MudButton Variant="Variant.Outlined" OnClick="@(() => NextAsync())">Next: recipients</MudButton></div>
+    </MudTabPanel>
+
+    <MudTabPanel Text="3. Recipients">
+        <MudStack Spacing="3" Style="max-width:720px">
+            <MudSelect T="int" Value="_c.ListId" ValueChanged="ListChangedAsync" Label="Send to list" Variant="Variant.Outlined">
+                @foreach (var l in _lists)
+                {
+                    <MudSelectItem T="int" Value="l.Id">@l.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="int" SelectedValues="_excluded" SelectedValuesChanged="ExcludedChangedAsync" MultiSelection="true" Label="Exclude anyone also in (optional)" Variant="Variant.Outlined"
+                       ToStringFunc="@(id => _lists.FirstOrDefault(l => l.Id == id)?.Name ?? "")">
+                @foreach (var l in _lists.Where(l => l.Id != _c.ListId))
+                {
+                    <MudSelectItem T="int" Value="l.Id">@l.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudAlert Severity="Severity.Info" Dense="true">
+                <b>@_sendable.ToString("N0")</b> contact(s) will receive this campaign: subscribed, not suppressed, and not in an excluded list.
+            </MudAlert>
+            <div><MudButton Variant="Variant.Outlined" OnClick="@(() => NextAsync())">Next: test</MudButton></div>
+        </MudStack>
+    </MudTabPanel>
+
+    <MudTabPanel Text="4. Test">
+        <MudStack Spacing="3" Style="max-width:720px">
+            <MudText>Send this exact email to up to five addresses, e.g. your seed inboxes. Tests are marked [TEST] and never counted.</MudText>
+            <MudTextField @bind-Value="_testAddresses" Label="To (up to 5, comma-separated)" Variant="Variant.Outlined" />
+            <div><MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="SendTestAsync" Disabled="_busy">Send test</MudButton></div>
+            @if (_outcomes is not null)
+            {
+                <MudSimpleTable Dense="true">
+                    <tbody>
+                        @foreach (var o in _outcomes)
+                        {
+                            <tr><td>@o.Address</td><td>@(o.Result.Success ? "Accepted" : o.Result.Error)</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+            <div><MudButton Variant="Variant.Outlined" OnClick="@(() => NextAsync())">Next: send</MudButton></div>
+        </MudStack>
+    </MudTabPanel>
+
+    <MudTabPanel Text="5. Send">
+        <MudStack Spacing="3" Style="max-width:720px">
+            @if (_problem is not null)
+            {
+                <MudAlert Severity="Severity.Warning">@_problem</MudAlert>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Success">Ready: <b>@_sendable.ToString("N0")</b> recipient(s) on <b>@(_lists.FirstOrDefault(l => l.Id == _c.ListId)?.Name)</b>.
+                    At @_limits it takes about @Duration.</MudAlert>
+            }
+            <MudPaper Class="pa-4" Outlined="true">
+                <MudText Typo="Typo.h6" GutterBottom="true">Send now</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendNowAsync" Disabled="_busy || _problem is not null">Send now</MudButton>
+            </MudPaper>
+            <MudPaper Class="pa-4" Outlined="true">
+                <MudText Typo="Typo.h6" GutterBottom="true">Schedule</MudText>
+                <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+                    <MudDatePicker @bind-Date="_date" Label="Date" Variant="Variant.Outlined" />
+                    <MudTimePicker @bind-Time="_time" Label="Time" Variant="Variant.Outlined" AmPm="true" />
+                    <MudText Typo="Typo.caption">@_tz</MudText>
+                </MudStack>
+                <MudButton Class="mt-3" Variant="Variant.Outlined" Color="Color.Primary" OnClick="ScheduleAsync" Disabled="_busy || _problem is not null || _date is null || _time is null">Schedule</MudButton>
+            </MudPaper>
+        </MudStack>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private record Named(int Id, string Name);
+    private record TemplateRef(int Id, string Name, TemplateFormat Format);
+
+    private Campaign? _c;
+    private bool _loaded, _busy;
+    private int _step, _sendable;
+    private string _tz = "UTC", _limits = "", _testAddresses = "";
+    private string? _problem;
+    private List<Named> _lists = [];
+    private List<TemplateRef> _templates = [];
+    private IReadOnlyCollection<int> _excluded = [];
+    private IReadOnlyList<TestEmailService.Outcome>? _outcomes;
+    private DateTime? _date;
+    private TimeSpan? _time;
+    private int _perHour = 90, _perMinute = 25;
+
+    /// <summary>Up to the hourly limit the per-minute limit governs; beyond it, the hourly limit does.</summary>
+    private string Duration
+    {
+        get
+        {
+            var minutes = _sendable <= _perHour
+                ? Math.Ceiling((double)_sendable / Math.Max(1, _perMinute))
+                : 60.0 * _sendable / Math.Max(1, _perHour);
+            return minutes < 90 ? $"{minutes:0} minute(s)" : $"{minutes / 60:0.#} hour(s)";
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _c = await Db.Campaigns.AsNoTracking().SingleOrDefaultAsync(c => c.Id == Id);
+        _loaded = true;
+        if (_c is null) return;
+        if (_c.Status != CampaignStatus.Draft) { Nav.NavigateTo($"/campaigns/{Id}", replace: true); return; }
+        var s = await SettingsService.GetAsync();
+        _tz = s.TimeZone;
+        _perHour = s.MaxPerHour;
+        _perMinute = s.MaxPerMinute;
+        _limits = $"{s.MaxPerMinute}/minute and {s.MaxPerHour}/hour";
+        _lists = await Db.Lists.OrderBy(l => l.Name).Select(l => new Named(l.Id, l.Name)).ToListAsync();
+        _templates = await Db.Templates.OrderBy(t => t.Name).Select(t => new TemplateRef(t.Id, t.Name, t.Format)).ToListAsync();
+        _excluded = CampaignService.ExcludedLists(_c);
+        await RefreshAsync();
+    }
+
+    private void SetBody(string body)
+    {
+        if (_c!.Format == TemplateFormat.Html) _c.Html = body; else _c.Text = body;
+    }
+
+    private async Task RefreshAsync()
+    {
+        _sendable = _c!.ListId == 0 ? 0 : await CampaignService.Sendable(_c.ListId, _excluded.ToList()).CountAsync();
+        _problem = await CampaignService.ReadinessProblemAsync(_c);
+    }
+
+    private async Task TemplateChosenAsync(int? templateId)
+    {
+        _c!.TemplateId = templateId;
+        if (templateId is null) return;
+        if (!string.IsNullOrWhiteSpace(_c.Body) &&
+            await Dialogs.ShowMessageBoxAsync("Use template", "Replace this campaign's current content with the template?", "Replace", cancelText: "Keep mine") != true)
+            return;
+        var t = await Db.Templates.AsNoTracking().SingleAsync(x => x.Id == templateId);
+        _c.Format = t.Format;
+        _c.Html = t.Html;
+        _c.Text = t.Text;
+    }
+
+    private async Task ListChangedAsync(int listId)
+    {
+        _c!.ListId = listId;
+        _excluded = _excluded.Where(x => x != listId).ToList();
+        _c.ExcludeListIds = JsonSerializer.Serialize(_excluded);
+        await RefreshAsync();
+    }
+
+    private async Task ExcludedChangedAsync(IReadOnlyCollection<int> values)
+    {
+        _excluded = values.ToList();
+        _c!.ExcludeListIds = JsonSerializer.Serialize(_excluded);
+        await RefreshAsync();
+    }
+
+    private async Task<bool> SaveAsync(bool announce)
+    {
+        _busy = true;
+        try
+        {
+            if (await CampaignService.SaveDraftAsync(_c!) is { } error) { Snackbar.Add(error, Severity.Warning); return false; }
+            if (announce) Snackbar.Add("Saved.", Severity.Success);
+            await RefreshAsync();
+            return true;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task NextAsync()
+    {
+        if (await SaveAsync(false)) _step++;
+    }
+
+    private async Task SendTestAsync()
+    {
+        _outcomes = null;
+        try { _outcomes = await TestEmail.SendAsync(_testAddresses, _c!.Subject, _c.Body, _c.Format); }
+        catch (ArgumentException ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    private async Task SendNowAsync()
+    {
+        if (!await SaveAsync(false)) return;
+        if (await Dialogs.ShowMessageBoxAsync("Send now", $"Send \"{_c!.Subject}\" to {_sendable:N0} contact(s) now? This can't be undone, though you can pause or cancel while it sends.", "Send", cancelText: "Cancel") != true) return;
+        if (await CampaignService.SendNowAsync(Id) is { } error) { Snackbar.Add(error, Severity.Warning); return; }
+        Nav.NavigateTo($"/campaigns/{Id}");
+    }
+
+    private async Task ScheduleAsync()
+    {
+        if (!await SaveAsync(false)) return;
+        var local = _date!.Value.Date + _time!.Value;
+        if (!TimeZoneInfo.TryFindSystemTimeZoneById(_tz, out var zone)) zone = TimeZoneInfo.Utc;
+        var utc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), zone);
+        if (await CampaignService.ScheduleAsync(Id, utc) is { } error) { Snackbar.Add(error, Severity.Warning); return; }
+        Nav.NavigateTo($"/campaigns/{Id}");
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Delete draft", "Delete this draft campaign?", "Delete", cancelText: "Cancel") != true) return;
+        if (await CampaignService.DeleteDraftAsync(Id) is { } error) { Snackbar.Add(error, Severity.Warning); return; }
+        Nav.NavigateTo("/campaigns");
+    }
+}

@@ -1,34 +1,85 @@
 @page "/"
+@using CampaignTool.Web.Services
+@implements IDisposable
 @inject AppDbContext Db
+@inject CampaignProgressNotifier Progress
+@inject SettingsService SettingsService
 
 <PageTitle>Dashboard</PageTitle>
 
 <MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
 
-<MudPaper Class="pa-4" Elevation="1">
-    <MudText Typo="Typo.h6" GutterBottom="true">Contacts by status</MudText>
-    @if (_byStatus is null)
-    {
-        <MudProgressLinear Indeterminate="true" />
-    }
-    else
-    {
-        <MudSimpleTable Dense="true">
-            <tbody>
-                @foreach (var status in Enum.GetValues<ContactStatus>())
-                {
-                    <tr><td>@status</td><td>@(_byStatus.GetValueOrDefault(status).ToString("N0"))</td></tr>
-                }
-            </tbody>
-        </MudSimpleTable>
-    }
-</MudPaper>
+@foreach (var c in _sending)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.h6">Sending now: <MudLink Href="@($"/campaigns/{c.Id}")">@c.Name</MudLink></MudText>
+            <CampaignStatusChip Status="c.Status" />
+        </MudStack>
+        <MudProgressLinear Color="Color.Primary" Value="@(c.Recipients == 0 ? 0 : 100.0 * (c.Sent + c.Failed) / c.Recipients)" Size="Size.Large" Class="my-2" />
+        <MudText Typo="Typo.caption">@c.Sent.ToString("N0") sent · @c.Delivered.ToString("N0") delivered · @c.Failed.ToString("N0") failed of @c.Recipients.ToString("N0")</MudText>
+    </MudPaper>
+}
+
+<MudGrid>
+    <MudItem xs="12" md="7">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Recent campaigns</MudText>
+            <MudSimpleTable Dense="true">
+                <thead><tr><th>Name</th><th>Status</th><th>Sent</th><th>Delivered</th><th>Clicked</th><th>Unsubscribed</th></tr></thead>
+                <tbody>
+                    @foreach (var c in _recent)
+                    {
+                        <tr>
+                            <td><MudLink Href="@(c.Status == CampaignStatus.Draft ? $"/campaigns/{c.Id}/edit" : $"/campaigns/{c.Id}")">@c.Name</MudLink></td>
+                            <td><CampaignStatusChip Status="c.Status" /></td>
+                            <td>@c.Sent.ToString("N0")</td><td>@c.Delivered.ToString("N0")</td><td>@c.Clicked.ToString("N0")</td><td>@c.Unsubscribed.ToString("N0")</td>
+                        </tr>
+                    }
+                    @if (_recent.Count == 0) { <tr><td colspan="6">No campaigns yet. <MudLink Href="/campaigns">Create one</MudLink>.</td></tr> }
+                </tbody>
+            </MudSimpleTable>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" md="5">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" GutterBottom="true">Contacts by status</MudText>
+            <MudSimpleTable Dense="true">
+                <tbody>
+                    @foreach (var status in Enum.GetValues<ContactStatus>())
+                    {
+                        <tr><td>@status</td><td>@(_byStatus.GetValueOrDefault(status).ToString("N0"))</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
 
 @code {
-    private Dictionary<ContactStatus, int>? _byStatus;
+    private List<Campaign> _sending = [], _recent = [];
+    private Dictionary<ContactStatus, int> _byStatus = [];
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
-    protected override async Task OnInitializedAsync() =>
-        _byStatus = await Db.Contacts.GroupBy(c => c.Status)
-            .Select(g => new { g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.Key, x => x.Count);
+    protected override async Task OnInitializedAsync()
+    {
+        Progress.Changed += OnProgress;
+        await LoadAsync();
+    }
+
+    private void OnProgress(int campaignId) => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+
+    private async Task LoadAsync()
+    {
+        if (!await _gate.WaitAsync(0)) return;
+        try
+        {
+            _sending = await Db.Campaigns.AsNoTracking().Where(c => c.Status == CampaignStatus.Sending || c.Status == CampaignStatus.Paused).ToListAsync();
+            _recent = await Db.Campaigns.AsNoTracking().OrderByDescending(c => c.Id).Take(5).ToListAsync();
+            _byStatus = await Db.Contacts.GroupBy(c => c.Status).Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count);
+        }
+        finally { _gate.Release(); }
+    }
+
+    public void Dispose() => Progress.Changed -= OnProgress;
 }

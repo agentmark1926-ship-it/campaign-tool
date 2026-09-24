@@ -7,8 +7,8 @@ Maintained by Claude Code. One entry per phase.
 | 1 Foundation | done | deployed, `/health` 200, owner signed in and saw the dashboard (2026-09-23) | Azure resources, Entra app, GitHub secrets (BLOCKERS 1–5) |
 | 2 ACS and events | done | test send from Settings reached the owner's inbox; Delivered report stored and shown (2026-09-23) | |
 | 3 Contacts | done in code; deployed (run 35931498833) | deployed | import the real subscriber file and confirm counts |
-| 4 Templates and editor | reworked per owner: HTML / plain text + AI writer; tests green (71) | not yet | merge; add the Anthropic API key; test send from the editor |
-| 5 Campaigns and sending | not started | | |
+| 4 Templates and editor | done (owner's HTML / plain text + AI writer design) | AI draft and test email verified in the owner's Outlook inbox (2026-09-24) | |
+| 5 Campaigns and sending | code done, tests green (85) | not yet | merge; send a small real campaign to your own addresses |
 | 6 Results and unsubscribe | not started | | |
 | 7 Hardening | not started | | |
 
@@ -114,3 +114,21 @@ The owner reviewed the Unlayer editor and asked instead for templates that are e
 - Bicep: `anthropicApiKey` secure parameter → `Ai__AnthropicApiKey` app setting (from `ANTHROPIC_API_KEY` in `main.bicepparam`), so a later infrastructure redeploy keeps the key.
 
 Tests (7 new): the AI request (model, fallbacks, HTML vs text rules, revise includes the current body), code-fence stripping, refusal message, missing-key message; plain-text rendering and the two-part test send; template format save/validate.
+
+## Phase 5 — Campaigns and sending
+
+Done and verified locally (tests, plus a browser run: import 40 contacts into a list → new campaign → stepper → Send now → the monitor went 0% → 62.5% without a reload → Pause):
+
+- Campaigns list (`/campaigns`): name, status, list, scheduled/sent date, recipients, delivered %, clicks; duplicate.
+- Campaign editor (`/campaigns/{id}/edit`), drafts only: 1 Setup (name, subject with merge fields, preheader, From shown read-only, reply-to) → 2 Content (start from a template — copied, not linked — then the shared HTML/plain-text editor with the AI writer and preview) → 3 Recipients (list, exclude lists, live sendable count) → 4 Test (up to five addresses) → 5 Send now (confirmation with the count) or Schedule (date/time in `App:TimeZone`). Readiness is checked before either: mailing address, unsubscribe configuration, subject, content, reply-to, list, at least one sendable contact.
+- Materialization (`CampaignService.MaterializeAsync`): one INSERT…SELECT — in the list, not in an excluded list (`OPENJSON`), Subscribed, not suppressed, not already a recipient; the unique (CampaignId, ContactId) index backs it up.
+- Worker (`CampaignSender`, run by `CampaignWorker`): stale-claim recovery and the scheduler every 15 s; the spec's `UPDATE TOP (n) … OUTPUT` claim; sliding-window rate limiter (never more than MaxPerMinute in any 60 s or MaxPerHour in any hour, every attempt counted, seeded from the last hour of sends at startup); one campaign at a time, oldest start first; pause/cancel checked before every message (a pause returns claimed rows to the queue, a cancel cancels them); consent re-checked at send time (unsubscribed or suppressed since scheduling → Cancelled); counters updated with atomic increments; `CampaignProgress` raised after every batch.
+- Retries: 429/5xx/timeouts retry after 1 min, 5 min, 30 min, 2 h, 6 h — the first send plus five retries; the sixth failure is Failed. A 4xx rejection is Failed at once and the contact becomes Invalid. (The spec lists five waits and also says "Failed after five attempts"; this implementation uses all five waits.)
+- Crash recovery: Claimed rows older than 10 minutes become Unknown and are never resent; the monitor lists them with an explicit Retry.
+- Each email: merge fields per contact, hidden preheader, footer with the mailing address and an HMAC-signed unsubscribe link, `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers, reply-to; plain-text campaigns send a text part plus an HTML rendition. (The /unsubscribe page itself is Phase 6.)
+- Monitor (`/campaigns/{id}`): progress bar and counters that re-render on each batch without polling, Pause / Resume / Cancel (confirmed), Unschedule-and-edit for scheduled campaigns, Unknown rows with Retry, latest 50 events.
+- Dashboard: campaigns sending now with live progress, the last five campaigns, contacts by status.
+- Migration `Phase5_Campaigns` (Format, Text, LastBatchAtUtc on Campaigns; existing rows default to Html).
+- Template editor: the test subject now follows the template name until you edit it (owner saw "Untitled template" in a test subject).
+
+Tests (14 new): every allowed state transition passes and every other throws; retry schedule; rate limiter never exceeds either window over three simulated hours and uses the full allowance; next-slot calculation; unsubscribe token round trip and tamper rejection; materialization exclusions and the unique index; 60 recipients sent once each at ≤25/min with footer, unsubscribe link and headers; pause/resume/cancel mid-send; a crashed claim becomes Unknown and is never resent; transient backoff then Failed, permanent rejection → Invalid; unsubscribe after scheduling → not sent; send refused without a subject.

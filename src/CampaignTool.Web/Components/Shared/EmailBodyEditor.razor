@@ -1,0 +1,121 @@
+@* HTML or plain-text body with the AI writer, image upload and live preview. Shared by templates and campaigns. *@
+@using CampaignTool.Web.Services
+@inject AiEmailWriter Ai
+@inject AssetStore ImageStore
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.subtitle1">Format</MudText>
+    <MudToggleGroup T="TemplateFormat" Value="Format" ValueChanged="FormatChangedAsync" Color="Color.Primary" SelectionMode="SelectionMode.SingleSelection" Disabled="ReadOnly">
+        <MudToggleItem Value="TemplateFormat.Html" Text="HTML" />
+        <MudToggleItem Value="TemplateFormat.Text" Text="Plain text" />
+    </MudToggleGroup>
+</MudStack>
+
+@if (!ReadOnly)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">AI writer</MudText>
+        </MudStack>
+        @if (!Ai.IsConfigured)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">The AI writer needs an Anthropic API key in Azure (setting <b>Ai__AnthropicApiKey</b>). You can still paste HTML or write text yourself.</MudAlert>
+        }
+        <MudTextField @bind-Value="_instruction" Label="@(string.IsNullOrWhiteSpace(Body) ? "Describe the email you want" : "Describe the email, or the change to make")"
+                      Placeholder="e.g. Announce our new climate-controlled units at the Miami Brickell facility, 20% off the first month for signups before [DATE], with a Reserve now button linking to [LINK]."
+                      Variant="Variant.Outlined" Lines="3" Disabled="_aiBusy" />
+        <MudStack Row="true" Spacing="2" Class="mt-2" AlignItems="AlignItems.Center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => WriteAsync(revise: false))" Disabled="_aiBusy || !Ai.IsConfigured">
+                Write @(Format == TemplateFormat.Html ? "HTML" : "plain-text") email
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => WriteAsync(revise: true))" Disabled="_aiBusy || !Ai.IsConfigured || string.IsNullOrWhiteSpace(Body)">Revise current</MudButton>
+            @if (_aiBusy) { <MudText Typo="Typo.caption">Writing… this usually takes 20–60 seconds.</MudText> }
+        </MudStack>
+        @if (_aiBusy) { <MudProgressLinear Indeterminate="true" Class="mt-2" /> }
+        <MudText Typo="Typo.caption" Class="mt-2 d-block">Give specifics (offer, dates, links) for a finished draft. Always read it before sending; anything in [SQUARE BRACKETS] is a placeholder for you to fill in.</MudText>
+    </MudPaper>
+}
+
+<MudGrid>
+    <MudItem xs="12" lg="6">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                <MudText Typo="Typo.h6">@(Format == TemplateFormat.Html ? "HTML" : "Plain text")</MudText>
+                <MudSpacer />
+                @if (Format == TemplateFormat.Html && !ReadOnly)
+                {
+                    <MudButton HtmlTag="label" for="@_uploadId" Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Image">Upload image</MudButton>
+                    <InputFile id="@_uploadId" OnChange="UploadImageAsync" accept=".png,.jpg,.jpeg,.gif,.webp" style="display:none" />
+                }
+            </MudStack>
+            @if (_imageUrl is not null)
+            {
+                <MudAlert Severity="Severity.Success" Dense="true" Class="mb-2">Image uploaded. Use this address in an &lt;img src="…"&gt;: <code>@_imageUrl</code></MudAlert>
+            }
+            <MudTextField T="string" Value="Body" ValueChanged="BodyChangedAsync" Variant="Variant.Outlined" Lines="28" DebounceInterval="600" ReadOnly="ReadOnly"
+                          Placeholder="@(Format == TemplateFormat.Html ? "Paste or write HTML here…" : "Write your letter here…")"
+                          Style="@(Format == TemplateFormat.Html ? "font-family:Consolas,Menlo,monospace;font-size:13px" : "")" />
+            <MudText Typo="Typo.caption">
+                Merge fields: <code>{{ first_name | default: "there" }}</code>, <code>{{ last_name }}</code>, <code>{{ email }}</code>, and custom fields such as <code>{{ unit_size }}</code>.
+                The mailing address and unsubscribe link are added to every send automatically.
+            </MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" lg="6">
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" Class="mb-2">Preview</MudText>
+            <EmailPreview Subject="@Subject" Html="@Body" Format="Format" Height="640" />
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter] public TemplateFormat Format { get; set; }
+    [Parameter] public EventCallback<TemplateFormat> FormatChanged { get; set; }
+    [Parameter] public string Body { get; set; } = "";
+    [Parameter] public EventCallback<string> BodyChanged { get; set; }
+    [Parameter] public string Subject { get; set; } = "";
+    [Parameter] public bool ReadOnly { get; set; }
+
+    private readonly string _uploadId = "img-" + Guid.NewGuid().ToString("N");
+    private bool _aiBusy;
+    private string _instruction = "";
+    private string? _imageUrl;
+
+    private Task BodyChangedAsync(string v) => BodyChanged.InvokeAsync(v ?? "");
+
+    private async Task FormatChangedAsync(TemplateFormat format)
+    {
+        if (format == Format) return;
+        if (!string.IsNullOrWhiteSpace(Body) &&
+            await Dialogs.ShowMessageBoxAsync("Switch format", "Switching keeps the current content as-is; HTML tags will show as text in a plain-text letter. Use the AI writer's Revise to convert it. Switch?", "Switch", cancelText: "Cancel") != true)
+            return;
+        await FormatChanged.InvokeAsync(format);
+    }
+
+    private async Task WriteAsync(bool revise)
+    {
+        _aiBusy = true;
+        try
+        {
+            await BodyChanged.InvokeAsync(await Ai.WriteAsync(Format, _instruction, revise ? Body : null));
+            Snackbar.Add("Draft ready. Review it, fill in any [PLACEHOLDERS], then Save.", Severity.Success);
+        }
+        catch (InvalidOperationException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+        finally { _aiBusy = false; }
+    }
+
+    private async Task UploadImageAsync(InputFileChangeEventArgs e)
+    {
+        if (e.File.Size > AssetStore.MaxImageBytes) { Snackbar.Add("Images must be 5 MB or smaller.", Severity.Warning); return; }
+        try
+        {
+            await using var stream = e.File.OpenReadStream(AssetStore.MaxImageBytes);
+            _imageUrl = await ImageStore.SaveImageAsync(e.File.Name, stream);
+        }
+        catch (ArgumentException ex) { Snackbar.Add(ex.Message, Severity.Warning); }
+    }
+}

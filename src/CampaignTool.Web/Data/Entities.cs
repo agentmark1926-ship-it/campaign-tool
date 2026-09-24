@@ -93,8 +93,11 @@ public class Campaign
     public int ListId { get; set; }
     public string ExcludeListIds { get; set; } = "[]";
     public int? TemplateId { get; set; }
+    public TemplateFormat Format { get; set; } = TemplateFormat.Html;
+    /// <summary>Unused (the drag-and-drop editor was replaced); kept for the spec's schema.</summary>
     public string DesignJson { get; set; } = "";
     public string Html { get; set; } = "";
+    public string Text { get; set; } = "";
     public CampaignStatus Status { get; set; } = CampaignStatus.Draft;
     public DateTime? ScheduledAtUtc { get; set; }
     public DateTime? StartedAtUtc { get; set; }
@@ -107,8 +110,12 @@ public class Campaign
     public int Clicked { get; set; }
     public int Unsubscribed { get; set; }
     public DateTime CreatedAtUtc { get; set; }
+    /// <summary>When the worker last finished a batch; the "stalled campaign" alert watches it.</summary>
+    public DateTime? LastBatchAtUtc { get; set; }
 
     public Template? Template { get; set; }
+
+    public string Body => Format == TemplateFormat.Html ? Html : Text;
 }
 
 public class CampaignRecipient
