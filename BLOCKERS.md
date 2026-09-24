@@ -97,6 +97,7 @@ echo "Sender is $FROM; event subscription created"
 
 ## Phase 7
 
-- [ ] After merging, run GitHub → Actions → **infra** → Run workflow with *Redeploy* and *Restore the database to a scratch copy* ticked (creates the alerts, verifies point-in-time restore). Confirm the "Azure Monitor alerts" welcome email arrives at the alert address.
+- [x] infra workflow run (2026-09-24): alerts created, point-in-time restore verified.
+- [ ] Confirm the "You've been added to an Azure Monitor action group" email arrived at admin@self-storagedevelopers.com (check junk).
 - [ ] Before the first real campaign: switch to your own (sub)domain — README → Runbook → "Switch from the Azure test domain".
 - [ ] Import the real subscriber list and check the counts.

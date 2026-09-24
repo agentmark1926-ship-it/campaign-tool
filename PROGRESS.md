@@ -8,9 +8,9 @@ Maintained by Claude Code. One entry per phase.
 | 2 ACS and events | done | test send from Settings reached the owner's inbox; Delivered report stored and shown (2026-09-23) | |
 | 3 Contacts | done in code; deployed (run 35931498833) | deployed | import the real subscriber file and confirm counts |
 | 4 Templates and editor | done (owner's HTML / plain text + AI writer design) | AI draft and test email verified in the owner's Outlook inbox (2026-09-24) | |
-| 5 Campaigns and sending | code done, tests green | deployed (run 35968052750) | send a campaign to your own addresses |
-| 6 Results and unsubscribe | code done, tests green | deployed | unsubscribe from a seed inbox; check Delivered counts |
-| 7 Hardening | code done, tests green (95) | not yet | merge; run the infra workflow (alerts + restore check) |
+| 5 Campaigns and sending | done | deployed (run 35968052750) | seed campaign to your own addresses |
+| 6 Results and unsubscribe | done | deployed (run 35969339165) | unsubscribe from a seed inbox; check Delivered counts |
+| 7 Hardening | done | deployed (run 35971561367); infra workflow run 35981697117 created the alerts and verified point-in-time restore (2026-09-24) | |
 
 ## Phase 1 — Foundation
 
@@ -159,3 +159,9 @@ Done and verified locally:
 Tests (3 new): retention deletes only old events and old import files and keeps counters; alerts fire for failed share and Unknown rows but not healthy campaigns; the stall alert fires only when work is due and the limiter allows sending.
 
 Waiting on the owner: merge; then run GitHub → Actions → **infra** once with *Redeploy* and *verify restore* ticked (or ask Claude Code to start it) — that creates the alerts and proves the restore.
+
+Verified in Azure: the **infra** workflow (run 35981697117, started from chat on the owner's request) redeployed `infra/main.bicep` with the secrets read from the Web App — the action group, both log alerts and both metric alerts now exist and the Event Grid subscription is managed by the Bicep — then restored `campaigns` to `campaigns-restore-check` as of 15 minutes earlier, confirmed it Online, and deleted it (3.5 minutes).
+
+## MVP status
+
+All seven phases are built, tested (95 tests) and deployed. The spec's MVP definition also needs one real campaign to the day-2 warm-up slice with bounces under 2%, which waits on the owner items in BLOCKERS.md: seed test, subscriber import, custom (sub)domain, ACS quota.
