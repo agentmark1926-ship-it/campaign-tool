@@ -1,0 +1,127 @@
+@page "/campaigns/{Id:int}/results"
+@using CampaignTool.Web.Services
+@inject AppDbContext Db
+@inject SettingsService SettingsService
+
+<PageTitle>Results: @(_c?.Name)</PageTitle>
+
+@if (_c is null)
+{
+    <MudText>@(_loaded ? "This campaign no longer exists." : "")</MudText>
+    return;
+}
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
+    <MudText Typo="Typo.h4">Results: @_c.Name</MudText>
+    <CampaignStatusChip Status="_c.Status" />
+    <MudSpacer />
+    <MudButton Href="@($"/campaigns/{Id}")" Variant="Variant.Text">Monitor</MudButton>
+    <MudButton Href="@($"/campaigns/{Id}/recipients.csv")" Target="_blank" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download">Export recipients</MudButton>
+</MudStack>
+<MudText Class="mb-3">Subject: <b>@_c.Subject</b> · sent @TimeFormat.Local(_c.StartedAtUtc, _tz) (@_tz)</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudGrid>
+        @foreach (var (label, value, pct) in Stats)
+        {
+            <MudItem xs="6" sm="4" md="2">
+                <MudText Typo="Typo.caption">@label</MudText>
+                <MudText Typo="Typo.h5">@value.ToString("N0")</MudText>
+                <MudText Typo="Typo.caption">@pct</MudText>
+            </MudItem>
+        }
+    </MudGrid>
+    <MudText Typo="Typo.caption" Class="mt-2 d-block">Percentages are of Sent. Opens are recorded but not shown: many mail apps load or block images automatically, so open counts aren't reliable.</MudText>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Clicks by link</MudText>
+    <MudSimpleTable Dense="true">
+        <thead><tr><th>Link</th><th>People</th><th>Clicks</th></tr></thead>
+        <tbody>
+            @foreach (var l in _links)
+            {
+                <tr><td style="word-break:break-all">@l.Url</td><td>@l.People.ToString("N0")</td><td>@l.Clicks.ToString("N0")</td></tr>
+            }
+            @if (_links.Count == 0) { <tr><td colspan="3">No clicks recorded. Click tracking is switched on in Azure once the sending-limit increase is approved.</td></tr> }
+        </tbody>
+    </MudSimpleTable>
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Recipients</MudText>
+        <MudSpacer />
+        <MudSelect T="RecipientStatus?" Value="_filter" ValueChanged="FilterChanged" Label="Status" Variant="Variant.Outlined" Dense="true" Clearable="true" Style="max-width:220px">
+            @foreach (var s in Enum.GetValues<RecipientStatus>())
+            {
+                <MudSelectItem T="RecipientStatus?" Value="s">@s (@_counts.GetValueOrDefault(s).ToString("N0"))</MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
+    <MudTable @ref="_table" T="CampaignRecipient" ServerData="LoadRecipientsAsync" Dense="true" Hover="true">
+        <HeaderContent><MudTh>Email</MudTh><MudTh>Status</MudTh><MudTh>Sent</MudTh><MudTh>Delivered</MudTh><MudTh>Clicks</MudTh><MudTh>Note</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd><MudLink Href="@($"/contacts/{context.ContactId}")">@context.EmailSnapshot</MudLink></MudTd>
+            <MudTd>@context.Status</MudTd>
+            <MudTd>@TimeFormat.Local(context.SentAtUtc, _tz, "MMM d, h:mm tt")</MudTd>
+            <MudTd>@TimeFormat.Local(context.DeliveredAtUtc, _tz, "MMM d, h:mm tt")</MudTd>
+            <MudTd>@context.ClickCount</MudTd>
+            <MudTd>@context.LastError</MudTd>
+        </RowTemplate>
+        <PagerContent><MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" /></PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private record LinkRow(string Url, int People, int Clicks);
+
+    private Campaign? _c;
+    private bool _loaded;
+    private string _tz = "UTC";
+    private List<LinkRow> _links = [];
+    private Dictionary<RecipientStatus, int> _counts = [];
+    private RecipientStatus? _filter;
+    private MudTable<CampaignRecipient> _table = null!;
+
+    private IEnumerable<(string, int, string)> Stats
+    {
+        get
+        {
+            string Pct(int n) => _c!.Sent == 0 ? "" : $"{100.0 * n / _c.Sent:0.#}%";
+            return
+            [
+                ("Sent", _c!.Sent, $"of {_c.Recipients:N0} recipients"), ("Delivered", _c.Delivered, Pct(_c.Delivered)), ("Bounced", _c.Bounced, Pct(_c.Bounced)),
+                ("Failed", _c.Failed, Pct(_c.Failed)), ("Clicked", _c.Clicked, Pct(_c.Clicked)), ("Unsubscribed", _c.Unsubscribed, Pct(_c.Unsubscribed)),
+            ];
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _tz = (await SettingsService.GetAsync()).TimeZone;
+        _c = await Db.Campaigns.AsNoTracking().SingleOrDefaultAsync(c => c.Id == Id);
+        _loaded = true;
+        if (_c is null) return;
+        _counts = await Db.CampaignRecipients.Where(r => r.CampaignId == Id).GroupBy(r => r.Status)
+            .Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count);
+        _links = await Db.EmailEvents.Where(e => e.CampaignRecipient!.CampaignId == Id && e.Kind == EmailEventKind.Engagement && e.Status == "click" && e.Url != null)
+            .GroupBy(e => e.Url!)
+            .Select(g => new { Url = g.Key, People = g.Select(e => e.CampaignRecipientId).Distinct().Count(), Clicks = g.Count() })
+            .OrderByDescending(l => l.Clicks)
+            .Select(l => new LinkRow(l.Url, l.People, l.Clicks)).ToListAsync();
+    }
+
+    private async Task<TableData<CampaignRecipient>> LoadRecipientsAsync(TableState state, CancellationToken ct)
+    {
+        var q = Db.CampaignRecipients.AsNoTracking().Where(r => r.CampaignId == Id);
+        if (_filter is { } f) q = q.Where(r => r.Status == f);
+        var total = await q.CountAsync(ct);
+        var items = await q.OrderBy(r => r.EmailSnapshot).Skip(state.Page * state.PageSize).Take(state.PageSize).ToListAsync(ct);
+        return new TableData<CampaignRecipient> { Items = items, TotalItems = total };
+    }
+
+    private Task FilterChanged(RecipientStatus? v) { _filter = v; return _table.ReloadServerData(); }
+}

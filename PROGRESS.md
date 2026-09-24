@@ -8,8 +8,8 @@ Maintained by Claude Code. One entry per phase.
 | 2 ACS and events | done | test send from Settings reached the owner's inbox; Delivered report stored and shown (2026-09-23) | |
 | 3 Contacts | done in code; deployed (run 35931498833) | deployed | import the real subscriber file and confirm counts |
 | 4 Templates and editor | done (owner's HTML / plain text + AI writer design) | AI draft and test email verified in the owner's Outlook inbox (2026-09-24) | |
-| 5 Campaigns and sending | code done, tests green (85) | not yet | merge; send a small real campaign to your own addresses |
-| 6 Results and unsubscribe | not started | | |
+| 5 Campaigns and sending | code done, tests green | deployed (run 35968052750) | send a campaign to your own addresses |
+| 6 Results and unsubscribe | code done, tests green (92) | not yet | merge; unsubscribe from a seed inbox; check Delivered counts |
 | 7 Hardening | not started | | |
 
 ## Phase 1 — Foundation
@@ -132,3 +132,14 @@ Done and verified locally (tests, plus a browser run: import 40 contacts into a 
 - Template editor: the test subject now follows the template name until you edit it (owner saw "Untitled template" in a test subject).
 
 Tests (14 new): every allowed state transition passes and every other throws; retry schedule; rate limiter never exceeds either window over three simulated hours and uses the full allowance; next-slot calculation; unsubscribe token round trip and tamper rejection; materialization exclusions and the unique index; 60 recipients sent once each at ≤25/min with footer, unsubscribe link and headers; pause/resume/cancel mid-send; a crashed claim becomes Unknown and is never resent; transient backoff then Failed, permanent rejection → Invalid; unsubscribe after scheduling → not sent; send refused without a subject.
+
+## Phase 6 — Results and unsubscribe
+
+Done and verified locally (tests, plus a browser run: 40-recipient campaign → the public unsubscribe page → "You're unsubscribed" → results show Unsubscribed 1 and the send times show the 25/minute limit):
+
+- Webhook now applies each event once, in the same transaction as storing it: Delivered → recipient Delivered + counter (and resets soft bounces); Bounced → Bounced + counter, contact Bounced, address suppressed (HardBounce); ACS `Suppressed` → Failed and treated as a hard bounce; `Failed` → Failed + counter and a soft bounce, the third in a row becoming a hard bounce; `FilteredSpam` / `Quarantined` → Failed, and FilteredSpam above 0.5% of Sent pauses the campaign (the spec says "stop"; pausing keeps the choice with the owner). Only rows still `Sent` move, so a late or duplicate event can't undo an outcome. Clicks: every click stored with its URL, `ClickCount` on every click, `Clicked` once per recipient. Opens stored only. The monitor and dashboard re-render when events arrive.
+- Unsubscribe (`/unsubscribe/{token}`): public, plain server-rendered HTML (no app layout, no sign-in, no interactive circuit — App Service Authentication only exempts this path), GET shows one button, POST (the button or a mail client's RFC 8058 one-click request) sets Unsubscribed, adds an Unsubscribe suppression and increments the campaign's `Unsubscribed` once; idempotent; works if the campaign was deleted; a tampered token gets a plain error page (400).
+- Results page (`/campaigns/{id}/results`, opened from the list for completed/cancelled campaigns and from the monitor): Sent, Delivered, Bounced, Failed, Clicked, Unsubscribed with % of Sent; clicks by link (people and clicks); recipients filterable by status with paging; recipient CSV export (`/campaigns/{id}/recipients.csv`, behind sign-in, formula-safe).
+- The browser run caught a per-link query EF Core couldn't translate; fixed, and a test now renders the results page with click data.
+
+Tests (7 new): each delivery status → recipient/counter/contact/suppression, duplicate EventId ignored, late contradictory event ignored; third soft bounce → hard; click counted once per recipient with every click kept, and the results page lists the links; FilteredSpam pause; unsubscribe page, button, one-click POST, no double count, tampered token, next campaign excludes the unsubscribed; unsubscribe after the campaign is deleted; recipient export is behind sign-in and has every row.

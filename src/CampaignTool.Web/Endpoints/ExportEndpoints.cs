@@ -21,6 +21,20 @@ public static class ExportEndpoints
             await CsvExporter.WriteAsync(writer, ["email", "first_name", "last_name", "status", "status_reason", "custom_fields", "created_utc"], rows, ct);
         });
 
+        app.MapGet("/campaigns/{id:int}/recipients.csv", async (int id, HttpContext http, AppDbContext db, CancellationToken ct) =>
+        {
+            if (!await db.Campaigns.AnyAsync(c => c.Id == id, ct)) return Results.NotFound();
+            http.Response.ContentType = "text/csv; charset=utf-8";
+            http.Response.Headers.ContentDisposition = $"attachment; filename=campaign-{id}-recipients.csv";
+            var rows = db.CampaignRecipients.AsNoTracking().Where(r => r.CampaignId == id).OrderBy(r => r.Id)
+                .Select(r => new[] { r.EmailSnapshot, r.Status.ToString(), r.SentAtUtc.HasValue ? r.SentAtUtc.Value.ToString("u") : "",
+                    r.DeliveredAtUtc.HasValue ? r.DeliveredAtUtc.Value.ToString("u") : "", r.ClickCount.ToString(), r.AttemptCount.ToString(), r.LastError })
+                .AsAsyncEnumerable();
+            await using var writer = new StreamWriter(http.Response.Body);
+            await CsvExporter.WriteAsync(writer, ["email", "status", "sent_utc", "delivered_utc", "clicks", "attempts", "note"], rows, ct);
+            return Results.Empty;
+        });
+
         app.MapGet("/imports/{id:int}/rejects.csv", async (int id, HttpContext http, AppDbContext db, CancellationToken ct) =>
         {
             var import = await db.Imports.AsNoTracking().SingleOrDefaultAsync(i => i.Id == id, ct);

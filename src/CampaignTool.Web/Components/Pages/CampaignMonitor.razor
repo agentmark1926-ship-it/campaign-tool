@@ -21,6 +21,7 @@
     <CampaignStatusChip Status="_c.Status" />
     <MudSpacer />
     <MudButton Href="/campaigns" Variant="Variant.Text">All campaigns</MudButton>
+    <MudButton Href="@($"/campaigns/{Id}/results")" Variant="Variant.Outlined">Results</MudButton>
     @if (_c.Status == CampaignStatus.Sending) { <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="PauseAsync">Pause</MudButton> }
     @if (_c.Status == CampaignStatus.Paused) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ResumeAsync">Resume</MudButton> }
     @if (_c.Status is CampaignStatus.Sending or CampaignStatus.Paused) { <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="CancelAsync">Cancel</MudButton> }

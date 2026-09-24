@@ -56,6 +56,7 @@ builder.Services.AddSingleton<CampaignProgressNotifier>();
 builder.Services.AddSingleton<UnsubscribeTokenService>();
 builder.Services.AddScoped<CampaignService>();
 builder.Services.AddScoped<CampaignSender>();
+builder.Services.AddScoped<UnsubscribeService>();
 builder.Services.AddHostedService<CampaignWorker>();
 
 builder.Services.AddRazorComponents()
@@ -84,6 +85,7 @@ app.MapHealthEndpoint();
 app.MapAcsWebhookEndpoint();
 app.MapExportEndpoints();
 app.MapAssetEndpoints();
+app.MapUnsubscribeEndpoint();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

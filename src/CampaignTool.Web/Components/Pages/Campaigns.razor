@@ -47,7 +47,12 @@
         _rows = await Db.Campaigns.AsNoTracking().OrderByDescending(c => c.Id).ToListAsync();
     }
 
-    private void Open(Campaign c) => Nav.NavigateTo(c.Status == CampaignStatus.Draft ? $"/campaigns/{c.Id}/edit" : $"/campaigns/{c.Id}");
+    private void Open(Campaign c) => Nav.NavigateTo(c.Status switch
+    {
+        CampaignStatus.Draft => $"/campaigns/{c.Id}/edit",
+        CampaignStatus.Completed or CampaignStatus.Cancelled => $"/campaigns/{c.Id}/results",
+        _ => $"/campaigns/{c.Id}",
+    });
 
     private async Task NewAsync() => Nav.NavigateTo($"/campaigns/{(await CampaignService.CreateAsync()).Id}/edit");
 
