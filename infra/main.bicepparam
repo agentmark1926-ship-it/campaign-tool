@@ -3,9 +3,9 @@
 //   az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam
 using './main.bicep'
 
-param appName = 'ashiwaju'                       // 3-14 lowercase letters/digits
-param entraClientId = '96676af7-caee-4824-8e26-a5451355fa03'
-param allowedUsers = 'admin@self-storagedevelopers.com'
+param appName = 'ashiwaju2'                       // 3-14 lowercase letters/digits
+param entraClientId = '453022e6-df6f-4c62-a04e-ff412366c413'
+param allowedUsers = 'justin@scoutsearchgroup.com'
 // Sending domains. Add a domain to senderDomains and run the infra workflow to get its DNS records;
 // once the portal shows it Verified, add it to verifiedDomains and run the workflow again. It then appears in the app's From dropdown.
 param senderDomains = []

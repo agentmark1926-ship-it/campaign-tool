@@ -4,10 +4,11 @@
 
 The original Azure subscription and the admin@self-storagedevelopers.com mailbox are no longer available. The app, its database and the old sign-in are gone with them; the code and this runbook are intact.
 
-- [ ] Create a new Azure account (azure.microsoft.com, pay-as-you-go) with an email you control.
-- [ ] Azure portal → Cloud Shell (Bash) → paste:
+- [x] Create a new Azure account (azure.microsoft.com, pay-as-you-go) with an email you control.
+- [x] Azure portal → Cloud Shell (Bash) → paste (done 2026-09-25: `rg-ashiwaju2-app`, https://ashiwaju2-web.azurewebsites.net, test sender on the Azure-managed domain):
       `git clone -b claude/campaign-tool-setup-7gh7yp https://github.com/agentmark1926-ship-it/campaign-tool && bash campaign-tool/infra/bootstrap.sh`
-- [ ] Update the four GitHub values it prints; send Claude Code the three non-secret lines (appName, entraClientId, allowedUsers) so `main.bicepparam` matches.
+- [x] Send Claude Code the three non-secret lines (committed to `main.bicepparam`).
+- [ ] Update the four GitHub values it printed (secrets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID, variable AZURE_WEBAPP_NAME = ashiwaju2-web), then say "merge it".
 - [ ] Re-import the subscriber CSV; set Reply-to in Settings to a mailbox that works.
 
 
