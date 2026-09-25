@@ -4,6 +4,8 @@
 @inject AssetStore ImageStore
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
     <MudText Typo="Typo.subtitle1">Format</MudText>
@@ -45,19 +47,44 @@
             <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
                 <MudText Typo="Typo.h6">@(Format == TemplateFormat.Html ? "HTML" : "Plain text")</MudText>
                 <MudSpacer />
+                @if (!ReadOnly)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Link" OnClick="@(() => OpenLinkAsync(button: false))">Insert link</MudButton>
+                    @if (Format == TemplateFormat.Html)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SmartButton" OnClick="@(() => OpenLinkAsync(button: true))">Insert button</MudButton>
+                    }
+                }
                 @if (Format == TemplateFormat.Html && !ReadOnly)
                 {
                     <MudButton HtmlTag="label" for="@_uploadId" Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Image">Upload image</MudButton>
                     <InputFile id="@_uploadId" OnChange="UploadImageAsync" accept=".png,.jpg,.jpeg,.gif,.webp" style="display:none" />
                 }
             </MudStack>
+            @if (_link is not null)
+            {
+                <MudPaper Outlined="true" Class="pa-3 mb-3">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">@(_link.Button ? "Insert a button" : "Insert a link")</MudText>
+                    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start">
+                        <MudTextField @bind-Value="_link.Text" Label="@(_link.Button ? "Button text" : "Link text")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Placeholder="@(_link.Button ? "e.g. Reserve a unit" : "e.g. our website")" Style="min-width:200px" />
+                        <MudTextField @bind-Value="_link.Url" Label="Web address" Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="e.g. scoutsearchgroup.com/services"
+                                      Error="@(_link.Error is not null)" ErrorText="@_link.Error" Style="min-width:280px" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InsertLinkAsync" Class="mt-1">Insert</MudButton>
+                        <MudButton Variant="Variant.Text" OnClick="@(() => _link = null)" Class="mt-1">Cancel</MudButton>
+                    </MudStack>
+                    <MudText Typo="Typo.caption">It goes where your cursor was in the email. Select some text first to turn that text into the link.</MudText>
+                </MudPaper>
+            }
             @if (_imageUrl is not null)
             {
                 <MudAlert Severity="Severity.Success" Dense="true" Class="mb-2">Image uploaded. Use this address in an &lt;img src="…"&gt;: <code>@_imageUrl</code></MudAlert>
             }
+            <div id="@_boxId">
             <MudTextField T="string" Value="Body" ValueChanged="BodyChangedAsync" Variant="Variant.Outlined" Lines="28" DebounceInterval="600" ReadOnly="ReadOnly"
                           Placeholder="@(Format == TemplateFormat.Html ? "Paste or write HTML here…" : "Write your letter here…")"
                           Style="@(Format == TemplateFormat.Html ? "font-family:Consolas,Menlo,monospace;font-size:13px" : "")" />
+            </div>
             <MudText Typo="Typo.caption">
                 Merge fields: <code>{{ first_name | default: "there" }}</code>, <code>{{ last_name }}</code>, <code>{{ email }}</code>, and custom fields such as <code>{{ unit_size }}</code>.
                 The mailing address and unsubscribe link are added to every send automatically.
@@ -81,6 +108,47 @@
     [Parameter] public bool ReadOnly { get; set; }
 
     private readonly string _uploadId = "img-" + Guid.NewGuid().ToString("N");
+    private readonly string _boxId = "body-" + Guid.NewGuid().ToString("N");
+    private IJSObjectReference? _js;
+
+    private sealed class LinkDraft
+    {
+        public bool Button;
+        public string Text = "", Url = "";
+        public string? Error;
+        public int Start = -1, End = -1;
+    }
+    private LinkDraft? _link;
+
+    private record Selection(int Start, int End, string Text);
+
+    private async Task OpenLinkAsync(bool button)
+    {
+        var sel = new Selection(-1, -1, "");
+        try
+        {
+            _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./editor.js");
+            sel = await _js.InvokeAsync<Selection>("selection", _boxId);
+        }
+        catch (JSException) { } // no cursor position: the link goes at the end
+        _link = new LinkDraft { Button = button, Text = sel.Text, Start = sel.Start, End = sel.End };
+    }
+
+    private async Task InsertLinkAsync()
+    {
+        var url = LinkBuilder.Normalize(_link!.Url);
+        if (url is null) { _link.Error = "Enter a web address such as scoutsearchgroup.com or https://…"; return; }
+        var html = Format == TemplateFormat.Html;
+        var snippet = _link.Button ? LinkBuilder.Button(_link.Text, url) : LinkBuilder.Link(_link.Text, url, html);
+        await BodyChanged.InvokeAsync(LinkBuilder.Insert(Body, snippet, _link.Start, _link.End));
+        _link = null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_js is not null) await _js.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
     private bool _aiBusy;
     private string _instruction = "";
     private string? _imageUrl;

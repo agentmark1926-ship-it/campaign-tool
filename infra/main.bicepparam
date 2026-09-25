@@ -8,7 +8,9 @@ param entraClientId = '453022e6-df6f-4c62-a04e-ff412366c413'
 param allowedUsers = 'justin@scoutsearchgroup.com'
 // Sending domains. Add a domain to senderDomains and run the infra workflow to get its DNS records;
 // once the portal shows it Verified, add it to verifiedDomains and run the workflow again. It then appears in the app's From dropdown.
-param senderDomains = []
+param senderDomains = [
+  'news.scoutsearchgroup.com'
+]
 param verifiedDomains = []
 param senderDisplayName = 'Self Storage Developers'
 param mailingAddress = 'Self Storage Developers, 1101 Brickell Ave., 8th Fl, South Tower, Miami, FL 33131'

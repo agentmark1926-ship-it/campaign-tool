@@ -10,7 +10,7 @@ namespace CampaignTool.Web.Services;
 /// The database is the queue; one campaign sends at a time, oldest StartedAtUtc first.
 /// </summary>
 public class CampaignSender(AppDbContext db, IEmailSender sender, SettingsService settings, IOptionsMonitor<SendingOptions> sending, UnsubscribeTokenService unsubscribe,
-    RateLimiter limiter, TimeProvider clock, CampaignProgressNotifier progress, ILogger<CampaignSender> log)
+    RateLimiter limiter, DomainService domains, TimeProvider clock, CampaignProgressNotifier progress, ILogger<CampaignSender> log)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -39,27 +39,39 @@ public class CampaignSender(AppDbContext db, IEmailSender sender, SettingsServic
 
     /// <summary>
     /// Sends at most one batch. Returns the time the worker may try again: now if there is more to do right away,
-    /// the next free rate-limit slot, or null when nothing is sending.
+    /// the next free rate-limit slot, midnight when every sending campaign's domain has reached its daily limit, or null when nothing is sending.
     /// </summary>
     public async Task<DateTime?> SendBatchAsync(CancellationToken ct = default)
     {
-        var campaign = await db.Campaigns.AsNoTracking().Where(c => c.Status == CampaignStatus.Sending)
-            .OrderBy(c => c.StartedAtUtc).ThenBy(c => c.Id).FirstOrDefaultAsync(ct);
-        if (campaign is null) return null;
-
-        var open = await db.CampaignRecipients.Where(r => r.CampaignId == campaign.Id && (r.Status == RecipientStatus.Pending || r.Status == RecipientStatus.Claimed))
-            .Select(r => r.NextAttemptAtUtc).ToListAsync(ct);
-        if (open.Count == 0)
-        {
-            await CompleteAsync(campaign.Id, ct);
-            return Now;
-        }
+        var sendingNow = await db.Campaigns.AsNoTracking().Where(c => c.Status == CampaignStatus.Sending)
+            .OrderBy(c => c.StartedAtUtc).ThenBy(c => c.Id).ToListAsync(ct);
+        if (sendingNow.Count == 0) return null;
 
         var s = await settings.GetAsync(ct);
+        // Oldest first, skipping campaigns whose sending domain has used its daily limit (the owner's warm-up cap).
+        var remaining = await domains.RemainingTodayAsync(s.TimeZone, ct);
+        Campaign? campaign = null;
+        List<DateTime?> open = [];
+        foreach (var c in sendingNow)
+        {
+            open = await db.CampaignRecipients.Where(r => r.CampaignId == c.Id && (r.Status == RecipientStatus.Pending || r.Status == RecipientStatus.Claimed))
+                .Select(r => r.NextAttemptAtUtc).ToListAsync(ct);
+            if (open.Count == 0)
+            {
+                await CompleteAsync(c.Id, ct);
+                return Now;
+            }
+            if (remaining.TryGetValue(DomainService.DomainOf(c.FromEmail), out var left) && left == 0) continue;
+            campaign = c;
+            break;
+        }
+        if (campaign is null) return domains.StartOfTomorrowUtc(s.TimeZone);
+
         var available = limiter.Available(Now, s.MaxPerMinute, s.MaxPerHour);
         if (available == 0) return limiter.NextAvailable(Now, s.MaxPerMinute, s.MaxPerHour);
 
         var batchSize = Math.Min(Math.Max(1, sending.CurrentValue.BatchSize), available);
+        if (remaining.TryGetValue(DomainService.DomainOf(campaign.FromEmail), out var domainLeft)) batchSize = Math.Min(batchSize, domainLeft);
         var claimed = await ClaimAsync(campaign.Id, batchSize, ct);
         if (claimed.Count == 0)
         {

@@ -182,6 +182,16 @@ The owner picked the dark "Midnight" direction from the design canvas (https://c
 
 Tests (3 new, 100 total): dashboard totals, daily series, previous-period and unique-clicker counts; the page renders for the signed-in owner; chart coordinates.
 
+## Links, pasted recipients, per-domain limits and domain health
+
+- Editor: **Insert link** (HTML `<a>` or `text: url` in plain text) and **Insert button** (table-based, renders in Outlook) at the cursor or over the selected text; addresses without a scheme get https://, anything but http(s)/mailto/tel is refused (`LinkBuilder`).
+- Campaign → Recipients: **Paste email addresses** (any mix of lines, commas, "Name <a@b>"): creates a new list, adds new addresses as Subscribed contacts (source "pasted") after the owner ticks the consent box, keeps existing contacts' status (unsubscribed/bounced stay excluded), reports invalid ones, and points the campaign at the list.
+- **Domains** page: per sending domain the owner's daily limit (for warm-up; 0 = none), sent today and in the last hour, 30-day sent / delivered / bounced / spam-filtered / unsubscribed / clickers, a health status (Warming up under 50 sends, Healthy, Watch, At risk: bounces 1%/2%, spam filtering 0.1%/0.3%, failures 5%, unsubscribes 1%) with a 0–100 score and advice, and a DNS check. Links to Google Postmaster Tools and Microsoft SNDS for provider-side reputation.
+- The sender honours each domain's daily limit (holds that campaign until local midnight, keeps sending others); the stall alert ignores campaigns waiting on it.
+- `news.scoutsearchgroup.com` added to `senderDomains` (not yet registered: needs a merge and an infra run).
+
+Tests (6 new, 106 total).
+
 ## MVP status
 
 All seven phases are built, tested (95 tests) and deployed. The spec's MVP definition also needs one real campaign to the day-2 warm-up slice with bounces under 2%, which waits on the owner items in BLOCKERS.md: seed test, subscriber import, custom (sub)domain, ACS quota.

@@ -8,7 +8,7 @@ namespace CampaignTool.Web.Services;
 /// An Azure Monitor log alert (infra/main.bicep) emails the owner when such a line reaches Application Insights.
 /// Webhook 5xx, CPU and SQL storage alerts are measured by Azure directly.
 /// </summary>
-public class AlertMonitor(AppDbContext db, RateLimiter limiter, SettingsService settings, TimeProvider clock, ILogger<AlertMonitor> log)
+public class AlertMonitor(AppDbContext db, RateLimiter limiter, SettingsService settings, DomainService domains, TimeProvider clock, ILogger<AlertMonitor> log)
 {
     public const double FailedShareThreshold = 0.02;
     public static readonly TimeSpan StallAfter = TimeSpan.FromMinutes(30);
@@ -27,9 +27,11 @@ public class AlertMonitor(AppDbContext db, RateLimiter limiter, SettingsService 
 
         var s = await settings.GetAsync(ct);
         var canSend = limiter.Available(now, s.MaxPerMinute, s.MaxPerHour) > 0;
+        var domainLeft = await domains.RemainingTodayAsync(s.TimeZone, ct);
         foreach (var c in recent.Where(c => c.Status == CampaignStatus.Sending && (c.LastBatchAtUtc ?? c.StartedAtUtc) < now - StallAfter))
         {
-            // Waiting out the hourly limit or a retry backoff is normal; stalled means work is due, sending is allowed, and nothing happened.
+            // Waiting out the hourly limit, a domain's daily limit or a retry backoff is normal; stalled means work is due, sending is allowed, and nothing happened.
+            if (domainLeft.TryGetValue(DomainService.DomainOf(c.FromEmail), out var left) && left == 0) continue;
             var due = await db.CampaignRecipients.AnyAsync(r => r.CampaignId == c.Id && r.Status == RecipientStatus.Pending
                 && (r.NextAttemptAtUtc == null || r.NextAttemptAtUtc <= now), ct);
             if (due && canSend)

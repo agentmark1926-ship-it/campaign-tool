@@ -5,6 +5,9 @@ namespace CampaignTool.Web.Services;
 
 public record ContactQuery(string? Search = null, ContactStatus? Status = null, int? ListId = null);
 
+/// <summary>What a paste did: the list it filled and what happened to each address.</summary>
+public record PasteResult(int ListId, string ListName, int Added, int AlreadyContacts, int NotSubscribed, IReadOnlyList<string> Invalid);
+
 public record ListSummary(int Id, string Name, string? Description, int Members, int Sendable, DateTime CreatedAtUtc);
 
 /// <summary>Contacts, lists and suppressions. Every contact status change logs one line.</summary>
@@ -85,6 +88,57 @@ public class ContactService(AppDbContext db, ILogger<ContactService> log)
         db.ListContacts.AddRange(added.Select(id => new ListContact { ListId = listId, ContactId = id, AddedAtUtc = now }));
         await db.SaveChangesAsync(ct);
         return added.Count;
+    }
+
+    /// <summary>Pulls every address out of pasted text: one per line, or separated by commas, semicolons or spaces; "Name &lt;a@b.com&gt;" works.</summary>
+    public static (List<string> Valid, List<string> Invalid) ParsePasted(string text)
+    {
+        var valid = new List<string>();
+        var invalid = new List<string>();
+        var seen = new HashSet<string>();
+        foreach (var raw in (text ?? "").Split(['\n', '\r', ',', ';', '\t', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var token = raw.Trim('<', '>', '"', '\'', '(', ')', '[', ']');
+            if (token.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) token = token[7..];
+            if (!token.Contains('@')) continue; // names and other words around the addresses
+            var email = EmailRules.Normalize(token);
+            if (!seen.Add(email)) continue;
+            (EmailRules.IsValid(email) ? valid : invalid).Add(email);
+        }
+        return (valid, invalid);
+    }
+
+    /// <summary>
+    /// Adds pasted addresses as contacts in a new list. New addresses become Subscribed (the owner confirms consent first);
+    /// existing contacts keep their status, so anyone who unsubscribed or bounced stays excluded.
+    /// </summary>
+    public async Task<PasteResult> AddPastedAsync(string text, string listName, CancellationToken ct = default)
+    {
+        var (valid, invalid) = ParsePasted(text);
+        var now = DateTime.UtcNow;
+        var name = listName.Trim();
+        for (var i = 2; await db.Lists.AnyAsync(l => l.Name == name, ct); i++) name = $"{listName.Trim()} ({i})";
+        var list = db.Lists.Add(new ContactList { Name = name, Description = "Pasted addresses", CreatedAtUtc = now }).Entity;
+
+        var existing = await db.Contacts.Where(c => valid.Contains(c.EmailNormalized)).ToDictionaryAsync(c => c.EmailNormalized, ct);
+        var added = 0;
+        foreach (var email in valid)
+        {
+            if (!existing.TryGetValue(email, out var contact))
+            {
+                contact = db.Contacts.Add(new Contact
+                {
+                    Email = email, EmailNormalized = email, Status = ContactStatus.Subscribed, StatusChangedAtUtc = now,
+                    Source = "pasted", CreatedAtUtc = now, UpdatedAtUtc = now,
+                }).Entity;
+                added++;
+            }
+            db.ListContacts.Add(new ListContact { List = list, Contact = contact, AddedAtUtc = now });
+        }
+        await db.SaveChangesAsync(ct);
+        var notSubscribed = existing.Values.Count(c => c.Status != ContactStatus.Subscribed);
+        log.LogInformation("Pasted {Count} address(es) into list {ListId}: {Added} new, {Invalid} invalid", valid.Count, list.Id, added, invalid.Count);
+        return new PasteResult(list.Id, name, added, existing.Count, notSubscribed, invalid);
     }
 
     public Task RemoveFromListAsync(int contactId, int listId, CancellationToken ct = default) =>

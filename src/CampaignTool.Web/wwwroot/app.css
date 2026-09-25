@@ -87,3 +87,25 @@ h1.mud-typography, .mud-typography-h4 { letter-spacing: -0.01em; }
 .mid-pill.mint .dot { background: var(--mid-mint); }
 .mid-pill.amber { background: rgba(251,191,36,0.14); color: #FCD34D; }
 .mid-pill.amber .dot { background: var(--mid-amber); }
+
+/* Domains page */
+.mid-domain { margin-bottom: 16px; gap: 12px; }
+.mid-domain-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mid-domain-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mid-domain-title h2 { font-size: 22px; }
+.mid-domain-score { display: flex; align-items: baseline; gap: 6px; }
+.mid-domain-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 24px; }
+@media (max-width: 1000px) { .mid-domain-grid { grid-template-columns: 1fr; } }
+.mid-usage { display: flex; flex-direction: column; gap: 10px; }
+.mid-limit-edit { display: flex; align-items: center; gap: 10px; }
+.mid-domain-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.mid-domain-stats > div { background: var(--mid-raised); border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.mid-domain-stats b { font-family: var(--mid-display); font-size: 22px; font-weight: 600; }
+.mid-domain-stats b.warn { color: var(--mid-amber); }
+.mid-domain-stats b.bad { color: var(--mid-red); }
+.mid-notes { margin: 0; padding-left: 18px; color: var(--mid-muted); font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.mid-pill.red { background: rgba(248,113,113,0.14); color: #FCA5A5; }
+.mid-pill.red .dot { background: var(--mid-red); }
+.mid-pill.blue { background: rgba(96,165,250,0.14); color: #93C5FD; }
+.mid-pill.blue .dot { background: var(--mid-blue); }
+.mid-pill.grey { background: var(--mid-raised); color: var(--mid-muted); }

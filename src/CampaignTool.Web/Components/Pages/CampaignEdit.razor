@@ -3,6 +3,7 @@
 @using CampaignTool.Web.Services
 @inject AppDbContext Db
 @inject CampaignService CampaignService
+@inject ContactService Contacts
 @inject SettingsService SettingsService
 @inject TestEmailService TestEmail
 @inject IDialogService Dialogs
@@ -59,6 +60,28 @@
 
     <MudTabPanel Text="3. Recipients">
         <MudStack Spacing="3" Style="max-width:720px">
+            <MudPaper Outlined="true" Class="pa-4">
+                <MudText Typo="Typo.h6">Paste email addresses</MudText>
+                <MudText Typo="Typo.body2" Class="mb-2">Paste a column from Excel or Outlook, or addresses separated by commas. They're saved as contacts in a new list, and this campaign is set to send to it.</MudText>
+                <MudTextField @bind-Value="_pasteText" Label="Email addresses" Variant="Variant.Outlined" Lines="6" Placeholder="jane@company.com&#10;Bob Smith &lt;bob@firm.com&gt;, sam@fund.com" />
+                <MudTextField @bind-Value="_pasteListName" Label="Name for the new list" Variant="Variant.Outlined" Class="mt-2" />
+                <MudCheckBox @bind-Value="_pasteConsent" Color="Color.Primary" Class="mt-1"
+                             Label="These people agreed to receive email from us (they signed up, are clients, or asked for updates)." />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-1" OnClick="PasteAsync"
+                           Disabled="_busy || !_pasteConsent || string.IsNullOrWhiteSpace(_pasteText)">Add and send to these</MudButton>
+                @if (_pasted is not null)
+                {
+                    <MudAlert Severity="Severity.Success" Dense="true" Class="mt-3">
+                        List <b>@_pasted.ListName</b>: @_pasted.Added.ToString("N0") new contact(s), @_pasted.AlreadyContacts.ToString("N0") already in your contacts.
+                        @if (_pasted.NotSubscribed > 0) { <span> @_pasted.NotSubscribed.ToString("N0") of those had unsubscribed or bounced and won't be emailed.</span> }
+                    </MudAlert>
+                    @if (_pasted.Invalid.Count > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">Skipped @_pasted.Invalid.Count as not valid: @string.Join(", ", _pasted.Invalid.Take(10))@(_pasted.Invalid.Count > 10 ? "…" : "")</MudAlert>
+                    }
+                }
+            </MudPaper>
+            <MudText Typo="Typo.subtitle2">Or choose a saved list</MudText>
             <MudSelect T="int" Value="_c.ListId" ValueChanged="ListChangedAsync" Label="Send to list" Variant="Variant.Outlined">
                 @foreach (var l in _lists)
                 {
@@ -199,6 +222,27 @@
         _c.Format = t.Format;
         _c.Html = t.Html;
         _c.Text = t.Text;
+    }
+
+    private string _pasteText = "", _pasteListName = $"Pasted {DateTime.Now:MMM d, h:mm tt}";
+    private bool _pasteConsent;
+    private PasteResult? _pasted;
+
+    private async Task PasteAsync()
+    {
+        var (valid, _) = ContactService.ParsePasted(_pasteText);
+        if (valid.Count == 0) { Snackbar.Add("No email addresses found in what you pasted.", Severity.Warning); return; }
+        _busy = true;
+        try
+        {
+            _pasted = await Contacts.AddPastedAsync(_pasteText, string.IsNullOrWhiteSpace(_pasteListName) ? "Pasted addresses" : _pasteListName);
+            _lists = await Db.Lists.OrderBy(l => l.Name).Select(l => new Named(l.Id, l.Name)).ToListAsync();
+            await ListChangedAsync(_pasted.ListId);
+            await SaveAsync(false);
+            _pasteText = "";
+            _pasteConsent = false;
+        }
+        finally { _busy = false; }
     }
 
     private async Task ListChangedAsync(int listId)

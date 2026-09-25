@@ -1,0 +1,150 @@
+@page "/domains"
+@using CampaignTool.Web.Services
+@using System.Globalization
+@inject DomainService DomainService
+@inject SettingsService SettingsService
+@inject DnsCheckService Dns
+@inject ISnackbar Snackbar
+
+<PageTitle>Domains</PageTitle>
+
+<header class="mid-header">
+    <div>
+        <h1 class="mid-title">Sending domains</h1>
+        <div class="mid-sub">Limits, usage and health for each domain you send from · last @DomainService.WindowDays days</div>
+    </div>
+</header>
+
+@if (_domains is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    return;
+}
+
+@foreach (var d in _domains)
+{
+    var limit = _limitEdits.GetValueOrDefault(d.Domain);
+    <section class="mid-card mid-domain">
+        <div class="mid-domain-head">
+            <div class="mid-domain-title">
+                <h2>@d.Domain</h2>
+                <span class="mid-pill @PillClass(d.Health)"><span class="dot"></span>@Label(d.Health)</span>
+                @if (d.IsTestDomain) { <span class="mid-pill grey">Azure test domain</span> }
+            </div>
+            <div class="mid-domain-score" title="Health score from bounces, spam filtering, failures and unsubscribes">
+                <span class="mid-kpi">@(d.Last30Days.Sent == 0 ? "—" : d.Score.ToString())</span><span class="mid-muted">/ 100</span>
+            </div>
+        </div>
+        <div class="mid-row-sub">@string.Join(" · ", d.Addresses)</div>
+
+        <div class="mid-domain-grid">
+            <div class="mid-usage">
+                <div class="mid-quota-head"><span>Sent today</span><span>@d.SentToday.ToString("N0") @(d.DailyLimit > 0 ? $"/ {d.DailyLimit:N0}" : "")</span></div>
+                <div class="mid-bar thin"><div style="width:@Pct(d.SentToday, d.DailyLimit)%;background:@BarColor(d.SentToday, d.DailyLimit)"></div></div>
+                <div class="mid-limit-edit">
+                    <MudNumericField T="int" Value="limit" ValueChanged="@(v => _limitEdits[d.Domain] = v)" Label="Daily limit (0 = none)" Min="0" Step="50"
+                                     Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:170px" />
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" OnClick="@(() => SaveLimitAsync(d.Domain))" Disabled="limit == d.DailyLimit">Save</MudButton>
+                </div>
+                <div class="mid-quota-head"><span>Sent in the last hour (all domains share @_perHour.ToString("N0")/hour)</span><span>@d.SentLastHour.ToString("N0")</span></div>
+            </div>
+            <div class="mid-domain-stats">
+                <div><span class="mid-muted">Sent</span><b>@d.Last30Days.Sent.ToString("N0")</b></div>
+                <div><span class="mid-muted">Delivered</span><b>@Rate(d.Last30Days, d.Last30Days.Delivered)</b></div>
+                <div><span class="mid-muted">Bounced</span><b class="@Warn(d.Last30Days.Rate(d.Last30Days.Bounced), 0.01, 0.02)">@Rate(d.Last30Days, d.Last30Days.Bounced)</b></div>
+                <div><span class="mid-muted">Spam-filtered</span><b class="@Warn(d.Last30Days.Rate(d.Last30Days.SpamFiltered), 0.001, 0.003)">@Rate(d.Last30Days, d.Last30Days.SpamFiltered)</b></div>
+                <div><span class="mid-muted">Unsubscribed</span><b class="@Warn(d.Last30Days.Rate(d.Last30Days.Unsubscribed), 0.01, 1)">@Rate(d.Last30Days, d.Last30Days.Unsubscribed)</b></div>
+                <div><span class="mid-muted">People who clicked</span><b>@d.Last30Days.Clickers.ToString("N0")</b></div>
+            </div>
+        </div>
+
+        <ul class="mid-notes">
+            @foreach (var n in d.Notes) { <li>@n</li> }
+            @if (d.IsTestDomain) { <li>Microsoft caps this test domain at about 10 emails an hour and won't raise it. Use it for tests only.</li> }
+        </ul>
+
+        @if (!d.IsTestDomain)
+        {
+            <div>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Dns" OnClick="@(() => CheckDnsAsync(d.Domain))" Disabled="_checking == d.Domain">Check DNS records</MudButton>
+                @if (_dns.TryGetValue(d.Domain, out var checks))
+                {
+                    <MudSimpleTable Dense="true" Class="mt-2">
+                        <tbody>
+                            @foreach (var c in checks)
+                            {
+                                <tr>
+                                    <td style="width:28px"><MudIcon Icon="@(c.Pass ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)" Color="@(c.Pass ? Color.Success : Color.Error)" Size="Size.Small" /></td>
+                                    <td>@c.Record</td><td style="word-break:break-all">@c.Found</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </div>
+        }
+    </section>
+}
+
+<section class="mid-card">
+    <h2>Reputation outside this app</h2>
+    <p class="mid-muted" style="margin:0">
+        The health above comes from your own delivery reports. Gmail and Outlook keep their own scores. Once a domain sends daily, verify it in
+        <a href="https://postmaster.google.com" target="_blank" rel="noopener">Google Postmaster Tools</a> (spam rate and reputation at Gmail) and
+        <a href="https://sendersupport.olc.protection.outlook.com/snds/" target="_blank" rel="noopener">Microsoft SNDS</a> (Outlook and Hotmail).
+        A domain being added in Azure appears here once it's verified and linked.
+    </p>
+</section>
+
+@code {
+    private IReadOnlyList<DomainService.DomainStatus>? _domains;
+    private readonly Dictionary<string, int> _limitEdits = [];
+    private readonly Dictionary<string, IReadOnlyList<DnsCheckService.Check>> _dns = [];
+    private string? _checking;
+    private int _perHour;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _perHour = (await SettingsService.GetAsync()).MaxPerHour;
+        _domains = await DomainService.ListAsync();
+        foreach (var d in _domains) _limitEdits[d.Domain] = d.DailyLimit;
+    }
+
+    private async Task SaveLimitAsync(string domain)
+    {
+        if (await DomainService.SetDailyLimitAsync(domain, _limitEdits[domain]) is { } error) { Snackbar.Add(error, Severity.Warning); return; }
+        Snackbar.Add(_limitEdits[domain] == 0 ? $"{domain}: no daily limit." : $"{domain}: at most {_limitEdits[domain]:N0} emails a day.", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task CheckDnsAsync(string domain)
+    {
+        _checking = domain;
+        try { _dns[domain] = await Dns.CheckAsync(domain); }
+        catch (DnsClient.DnsResponseException ex) { Snackbar.Add($"DNS lookup failed: {ex.Message}", Severity.Warning); }
+        finally { _checking = null; }
+    }
+
+    private static string Label(DomainService.Health h) => h switch
+    {
+        DomainService.Health.Healthy => "Healthy",
+        DomainService.Health.Watch => "Watch",
+        DomainService.Health.AtRisk => "At risk",
+        _ => "Warming up",
+    };
+
+    private static string PillClass(DomainService.Health h) => h switch
+    {
+        DomainService.Health.Healthy => "mint",
+        DomainService.Health.Watch => "amber",
+        DomainService.Health.AtRisk => "red",
+        _ => "blue",
+    };
+
+    private static string Rate(DomainService.Stats s, int part) => s.Sent == 0 ? "—" : $"{100.0 * part / s.Sent:0.0#}%";
+    private static string Warn(double rate, double watch, double risk) => rate >= risk ? "bad" : rate >= watch ? "warn" : "";
+    private static string Pct(int used, int limit) => (limit <= 0 ? 0 : Math.Min(100, 100.0 * used / limit)).ToString("0.#", CultureInfo.InvariantCulture);
+    private static string BarColor(int used, int limit) => limit > 0 && used >= limit ? Midnight.Orange : Midnight.Mint;
+}
