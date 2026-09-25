@@ -9,6 +9,7 @@
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 @inject NavigationManager Nav
+@inject Microsoft.Extensions.Options.IOptions<AcsOptions> Acs
 
 <PageTitle>@(_c?.Name ?? "Campaign")</PageTitle>
 
@@ -33,10 +34,11 @@
             <MudTextField @bind-Value="_c.Name" Label="Campaign name (internal)" Variant="Variant.Outlined" />
             <MudTextField @bind-Value="_c.Subject" Label="Subject line" Variant="Variant.Outlined" HelperText="Merge fields work here, e.g. {{ first_name | default: &quot;there&quot; }}, your October update" />
             <MudTextField @bind-Value="_c.Preheader" Label="Preheader (optional)" Variant="Variant.Outlined" HelperText="The grey preview line after the subject in most inboxes (HTML emails)." />
-            <MudSelect T="string" @bind-Value="_c.FromEmail" Label="From" Variant="Variant.Outlined" HelperText="Addresses on the domains verified in Azure. The default is set in Settings.">
+            <MudSelect T="string" @bind-Value="_c.FromEmail" Label="Sender (From)" Variant="Variant.Outlined" ToStringFunc="@(a => a is null ? "" : Acs.Value.Label(a))"
+                       HelperText="Who this campaign comes from. One address per domain verified in Azure; the default is set in Settings.">
                 @foreach (var a in _senders)
                 {
-                    <MudSelectItem T="string" Value="a">@a</MudSelectItem>
+                    <MudSelectItem T="string" Value="a">@Acs.Value.Label(a)</MudSelectItem>
                 }
             </MudSelect>
             <MudTextField @bind-Value="_c.ReplyTo" Label="Reply-to" Variant="Variant.Outlined" HelperText="A mailbox someone reads; replies go here." />
@@ -62,8 +64,8 @@
         <MudStack Spacing="3" Style="max-width:720px">
             <MudPaper Outlined="true" Class="pa-4">
                 <MudText Typo="Typo.h6">Paste email addresses</MudText>
-                <MudText Typo="Typo.body2" Class="mb-2">Paste a column from Excel or Outlook, or addresses separated by commas. They're saved as contacts in a new list, and this campaign is set to send to it.</MudText>
-                <MudTextField @bind-Value="_pasteText" Label="Email addresses" Variant="Variant.Outlined" Lines="6" Placeholder="jane@company.com&#10;Bob Smith &lt;bob@firm.com&gt;, sam@fund.com" />
+                <MudText Typo="Typo.body2" Class="mb-2">Paste from Excel (First, Last, Email columns), from Outlook ("Jane Smith &lt;jane@firm.com&gt;"), or plain addresses. Names are saved so the email greets people by name. They become contacts in a new list, and this campaign is set to send to it.</MudText>
+                <MudTextField @bind-Value="_pasteText" Label="Email addresses" Variant="Variant.Outlined" Lines="6" Placeholder="Jane&#9;Smith&#9;jane@company.com&#10;Bob Lee &lt;bob@firm.com&gt;, sam@fund.com" />
                 <MudTextField @bind-Value="_pasteListName" Label="Name for the new list" Variant="Variant.Outlined" Class="mt-2" />
                 <MudCheckBox @bind-Value="_pasteConsent" Color="Color.Primary" Class="mt-1"
                              Label="These people agreed to receive email from us (they signed up, are clients, or asked for updates)." />
@@ -130,7 +132,7 @@
             }
             else
             {
-                <MudAlert Severity="Severity.Success">Ready: <b>@_sendable.ToString("N0")</b> recipient(s) on <b>@(_lists.FirstOrDefault(l => l.Id == _c.ListId)?.Name)</b>.
+                <MudAlert Severity="Severity.Success">Ready: <b>@_sendable.ToString("N0")</b> recipient(s) on <b>@(_lists.FirstOrDefault(l => l.Id == _c.ListId)?.Name)</b>, from <b>@Acs.Value.Label(_c.FromEmail)</b>.
                     At @_limits it takes about @Duration.</MudAlert>
             }
             <MudPaper Class="pa-4" Outlined="true">

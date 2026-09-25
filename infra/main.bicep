@@ -67,6 +67,9 @@ param senderUsername string = 'updates'
 @description('The name recipients see next to the From address.')
 param senderDisplayName string = 'Updates'
 
+@description('Per-domain override of senderDisplayName, e.g. { \'news.example.com\': \'Example Co\' }.')
+param senderDisplayNames object = {}
+
 @description('App Service Linux runtime. Use DOTNETCORE|8.0 if 10.0 is not offered in your region yet.')
 param linuxFxVersion string = 'DOTNETCORE|10.0'
 
@@ -220,7 +223,7 @@ resource doNotReplyUsers 'Microsoft.Communication/emailServices/domains/senderUs
   name: '${emailServiceName}/${domain}/donotreply'
   properties: {
     username: 'DoNotReply'
-    displayName: senderDisplayName
+    displayName: senderDisplayNames[?domain] ?? senderDisplayName
   }
   dependsOn: [ emailDomains ]
 }]
@@ -229,7 +232,7 @@ resource senderUsers 'Microsoft.Communication/emailServices/domains/senderUserna
   name: '${emailServiceName}/${domain}/${senderUsername}'
   properties: {
     username: senderUsername
-    displayName: senderDisplayName
+    displayName: senderDisplayNames[?domain] ?? senderDisplayName
   }
   dependsOn: [ emailDomains ]
 }]
@@ -245,6 +248,7 @@ resource acs 'Microsoft.Communication/communicationServices@2023-04-01' = {
 }
 
 var testSender = 'DoNotReply@${testDomain.properties.mailFromSenderDomain}'
+var senderNames = map(verifiedDomains, d => '${d}=${senderDisplayNames[?d] ?? senderDisplayName}')
 var customSenders = flatten(map(verifiedDomains, d => createSenderUsername ? [ '${senderUsername}@${d}', 'DoNotReply@${d}' ] : [ 'DoNotReply@${d}' ]))
 
 // ---------- App Service ----------
@@ -284,6 +288,7 @@ resource web 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'Acs__ConnectionString', value: acs.listKeys().primaryConnectionString }
         { name: 'Acs__SenderAddress', value: empty(customSenders) ? testSender : customSenders[0] }
         { name: 'Acs__SenderAddresses', value: join(concat(customSenders, [ testSender ]), ',') }
+        { name: 'Acs__SenderNames', value: join(senderNames, ';') }
         { name: 'Webhooks__AcsSecret', value: webhookSecret }
         { name: 'Auth__UnsubscribeKey', value: unsubscribeKey }
         { name: 'Auth__AllowedUsers', value: allowedUsers }

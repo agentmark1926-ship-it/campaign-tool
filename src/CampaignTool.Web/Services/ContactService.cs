@@ -90,23 +90,49 @@ public class ContactService(AppDbContext db, ILogger<ContactService> log)
         return added.Count;
     }
 
-    /// <summary>Pulls every address out of pasted text: one per line, or separated by commas, semicolons or spaces; "Name &lt;a@b.com&gt;" works.</summary>
-    public static (List<string> Valid, List<string> Invalid) ParsePasted(string text)
+    public record PastedAddress(string Email, string? FirstName, string? LastName);
+
+    /// <summary>
+    /// Pulls every address out of pasted text, with a name when one is given: "Jane Smith &lt;jane@x.com&gt;", "Jane Smith, jane@x.com",
+    /// or Excel columns (First, Last, Email). Addresses can also be separated by commas, semicolons, tabs, spaces or new lines.
+    /// </summary>
+    public static (List<PastedAddress> Valid, List<string> Invalid) ParsePasted(string text)
     {
-        var valid = new List<string>();
+        var valid = new List<PastedAddress>();
         var invalid = new List<string>();
         var seen = new HashSet<string>();
-        foreach (var raw in (text ?? "").Split(['\n', '\r', ',', ';', '\t', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var line in (text ?? "").Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries))
         {
-            var token = raw.Trim('<', '>', '"', '\'', '(', ')', '[', ']');
-            if (token.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) token = token[7..];
-            if (!token.Contains('@')) continue; // names and other words around the addresses
-            var email = EmailRules.Normalize(token);
-            if (!seen.Add(email)) continue;
-            (EmailRules.IsValid(email) ? valid : invalid).Add(email);
+            var pendingName = new List<string>(); // cells before the address on this line (Excel: First, Last, Email)
+            foreach (var cell in line.Split([',', ';', '\t']))
+            {
+                var words = cell.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var emails = words.Where(w => w.Contains('@')).ToList();
+                var nameWords = words.Where(w => !w.Contains('@')).Select(w => w.Trim('"', '\'', '<', '>', '(', ')', '[', ']')).Where(w => w.Length > 0).ToList();
+                if (emails.Count == 0)
+                {
+                    if (nameWords.Count > 0) pendingName.Add(string.Join(' ', nameWords));
+                    continue;
+                }
+                var name = emails.Count > 1 ? [] : nameWords.Count > 0 ? nameWords : pendingName.SelectMany(n => n.Split(' ')).ToList();
+                pendingName.Clear();
+                foreach (var raw in emails)
+                {
+                    var token = raw.Trim('<', '>', '"', '\'', '(', ')', '[', ']');
+                    if (token.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) token = token[7..];
+                    var email = EmailRules.Normalize(token);
+                    if (!seen.Add(email)) continue;
+                    if (!EmailRules.IsValid(email)) { invalid.Add(email); continue; }
+                    valid.Add(new PastedAddress(email, name.Count > 0 ? Title(name[0]) : null, name.Count > 1 ? Title(string.Join(' ', name.Skip(1))) : null));
+                }
+            }
         }
         return (valid, invalid);
     }
+
+    // "JANE" or "jane" → "Jane"; mixed case ("McDonald") is kept as typed.
+    private static string Title(string s) =>
+        s.Any(char.IsLower) && s.Any(char.IsUpper) ? s : System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(s.ToLowerInvariant());
 
     /// <summary>
     /// Adds pasted addresses as contacts in a new list. New addresses become Subscribed (the owner confirms consent first);
@@ -120,18 +146,26 @@ public class ContactService(AppDbContext db, ILogger<ContactService> log)
         for (var i = 2; await db.Lists.AnyAsync(l => l.Name == name, ct); i++) name = $"{listName.Trim()} ({i})";
         var list = db.Lists.Add(new ContactList { Name = name, Description = "Pasted addresses", CreatedAtUtc = now }).Entity;
 
-        var existing = await db.Contacts.Where(c => valid.Contains(c.EmailNormalized)).ToDictionaryAsync(c => c.EmailNormalized, ct);
+        var emails = valid.Select(v => v.Email).ToList();
+        var existing = await db.Contacts.Where(c => emails.Contains(c.EmailNormalized)).ToDictionaryAsync(c => c.EmailNormalized, ct);
         var added = 0;
-        foreach (var email in valid)
+        foreach (var (email, first, last) in valid)
         {
             if (!existing.TryGetValue(email, out var contact))
             {
                 contact = db.Contacts.Add(new Contact
                 {
-                    Email = email, EmailNormalized = email, Status = ContactStatus.Subscribed, StatusChangedAtUtc = now,
+                    Email = email, EmailNormalized = email, FirstName = first, LastName = last, Status = ContactStatus.Subscribed, StatusChangedAtUtc = now,
                     Source = "pasted", CreatedAtUtc = now, UpdatedAtUtc = now,
                 }).Entity;
                 added++;
+            }
+            else if (string.IsNullOrWhiteSpace(contact.FirstName) && string.IsNullOrWhiteSpace(contact.LastName) && first is not null)
+            {
+                // Fill in a name we didn't have; never overwrite one already on file.
+                contact.FirstName = first;
+                contact.LastName = last;
+                contact.UpdatedAtUtc = now;
             }
             db.ListContacts.Add(new ListContact { List = list, Contact = contact, AddedAtUtc = now });
         }

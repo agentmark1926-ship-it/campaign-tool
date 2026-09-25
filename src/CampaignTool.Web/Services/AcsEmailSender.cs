@@ -8,9 +8,10 @@ public class AcsEmailSender(EmailClient client, IOptions<AcsOptions> acs, ILogge
 {
     public async Task<SendResult> SendAsync(OutgoingEmail email, CancellationToken ct = default)
     {
+        var to = string.IsNullOrWhiteSpace(email.ToName) ? new EmailAddress(email.To) : new EmailAddress(email.To, email.ToName);
         var message = new EmailMessage(
             senderAddress: string.IsNullOrWhiteSpace(email.From) ? acs.Value.SenderAddress : email.From,
-            recipientAddress: email.To,
+            recipients: new EmailRecipients([to]),
             content: new EmailContent(email.Subject) { Html = email.Html, PlainText = email.PlainText });
 
         if (!string.IsNullOrWhiteSpace(email.ReplyTo))

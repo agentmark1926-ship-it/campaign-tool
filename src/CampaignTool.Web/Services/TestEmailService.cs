@@ -43,11 +43,11 @@ public class TestEmailService(IEmailSender sender, SettingsService settings, App
             {
                 var text = TemplateRenderer.RenderText(body, contact);
                 email = new OutgoingEmail(address, renderedSubject, TemplateRenderer.TextToHtml(text) + footer, s.ReplyTo,
-                    PlainText: $"{text}\n\n--\n{s.MailingAddress}\nThis is a test email; it is not counted in campaign results.", From: s.SenderAddress);
+                    PlainText: $"{text}\n\n--\n{s.MailingAddress}\nThis is a test email; it is not counted in campaign results.", From: s.SenderAddress, ToName: EmailComposer.FullName(contact));
             }
             else
             {
-                email = new OutgoingEmail(address, renderedSubject, TemplateRenderer.RenderHtml(body, contact) + footer, s.ReplyTo, From: s.SenderAddress);
+                email = new OutgoingEmail(address, renderedSubject, TemplateRenderer.RenderHtml(body, contact) + footer, s.ReplyTo, From: s.SenderAddress, ToName: EmailComposer.FullName(contact));
             }
             outcomes.Add(new Outcome(address, await sender.SendAsync(email, ct)));
         }

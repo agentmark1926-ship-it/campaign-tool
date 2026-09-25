@@ -28,6 +28,18 @@ public class AcsOptions
     /// <summary>Comma-separated MailFrom addresses on every linked domain, set by the Bicep; the owner picks one in Settings.</summary>
     public string SenderAddresses { get; set; } = "";
 
+    /// <summary>"domain=Display Name;…": the name Azure shows next to each domain's addresses (set by the Bicep).</summary>
+    public string SenderNames { get; set; } = "";
+
+    /// <summary>"Display Name &lt;address&gt;" when the address's domain has a display name, else the bare address.</summary>
+    public string Label(string address)
+    {
+        var domain = address.Split('@') is [_, var d] ? d : "";
+        var name = SenderNames.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(p => p.Split('=', 2)).FirstOrDefault(p => p.Length == 2 && p[0].Equals(domain, StringComparison.OrdinalIgnoreCase))?[1];
+        return string.IsNullOrWhiteSpace(name) ? address : $"{name} <{address}>";
+    }
+
     public IReadOnlyList<string> AllowedSenders() =>
         SenderAddresses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Prepend(SenderAddress).Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

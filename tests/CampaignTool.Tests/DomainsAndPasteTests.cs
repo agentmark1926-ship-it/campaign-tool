@@ -69,8 +69,64 @@ public class DomainsAndPasteTests : IAsyncLifetime
     public void Pasted_text_yields_unique_valid_addresses_and_reports_bad_ones()
     {
         var (valid, invalid) = ContactService.ParsePasted("Jane <Jane@Firm.com>, bob@fund.com;\nbob@fund.com\tsam@\n\"Ann Lee\" ann@x.co mailto:zed@y.org");
-        Assert.Equal(["jane@firm.com", "bob@fund.com", "ann@x.co", "zed@y.org"], valid);
+        Assert.Equal(["jane@firm.com", "bob@fund.com", "ann@x.co", "zed@y.org"], valid.Select(v => v.Email));
         Assert.Equal(["sam@"], invalid);
+        Assert.Equal("Jane", valid[0].FirstName);
+    }
+
+    [Theory]
+    [InlineData("Jane Smith <jane@firm.com>", "Jane", "Smith")]
+    [InlineData("\"Jane van der Berg\" <jane@firm.com>", "Jane", "van der Berg")]
+    [InlineData("Jane Smith, jane@firm.com", "Jane", "Smith")]
+    [InlineData("JANE\tSMITH\tjane@firm.com", "Jane", "Smith")]
+    [InlineData("Jane\tMcDonald\tjane@firm.com\t555-1234", "Jane", "McDonald")]
+    [InlineData("jane@firm.com", null, null)]
+    public void Pasted_names_are_picked_up(string line, string? first, string? last)
+    {
+        var (valid, _) = ContactService.ParsePasted(line);
+        var one = Assert.Single(valid);
+        Assert.Equal("jane@firm.com", one.Email);
+        Assert.Equal(first, one.FirstName);
+        Assert.Equal(last, one.LastName);
+    }
+
+    [Fact]
+    public async Task Campaign_emails_carry_the_recipients_name_and_a_pasted_name_fills_a_blank_contact()
+    {
+        await using (var db = _app.NewDbContext())
+        {
+            db.Contacts.Add(new Contact { Email = "noname@x.com", EmailNormalized = "noname@x.com", Status = ContactStatus.Subscribed, StatusChangedAtUtc = Now, Source = "t", CreatedAtUtc = Now, UpdatedAtUtc = Now });
+            db.Contacts.Add(new Contact { Email = "keep@x.com", EmailNormalized = "keep@x.com", FirstName = "Kept", Status = ContactStatus.Subscribed, StatusChangedAtUtc = Now, Source = "t", CreatedAtUtc = Now, UpdatedAtUtc = Now });
+            await db.SaveChangesAsync();
+        }
+        var id = await With(async sp =>
+        {
+            var pasted = await sp.GetRequiredService<ContactService>().AddPastedAsync("Maria Chen <maria@x.com>\nNo Name <noname@x.com>\nOther Name <keep@x.com>", "Named");
+            var svc = sp.GetRequiredService<CampaignService>();
+            var c = await svc.CreateAsync();
+            c.Subject = "Hi {{ first_name }}";
+            c.Html = "<p>Hi</p>";
+            c.ReplyTo = "owner@example.com";
+            c.ListId = pasted.ListId;
+            Assert.Null(await svc.SaveDraftAsync(c));
+            Assert.Null(await svc.SendNowAsync(c.Id));
+            return c.Id;
+        });
+        for (var i = 0; i < 5; i++) await With(sp => sp.GetRequiredService<CampaignSender>().SendBatchAsync());
+
+        var sent = _sender.Calls.Where(e => e.To.EndsWith("@x.com")).ToDictionary(e => e.To);
+        Assert.Equal("Maria Chen", sent["maria@x.com"].ToName);
+        Assert.Equal("Hi Maria", sent["maria@x.com"].Subject);
+        Assert.Equal("No Name", sent["noname@x.com"].ToName);
+        Assert.Equal("Kept", sent["keep@x.com"].ToName);
+    }
+
+    [Fact]
+    public void Sender_labels_show_the_display_name_set_for_the_domain()
+    {
+        var acs = new CampaignTool.Web.AcsOptions { SenderNames = "news.example.com=Scout Search Group;other.com=Other" };
+        Assert.Equal("Scout Search Group <DoNotReply@news.example.com>", acs.Label("DoNotReply@news.example.com"));
+        Assert.Equal("DoNotReply@test.azurecomm.net", acs.Label("DoNotReply@test.azurecomm.net"));
     }
 
     [Fact]

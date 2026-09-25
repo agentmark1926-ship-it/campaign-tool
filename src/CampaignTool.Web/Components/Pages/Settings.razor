@@ -5,6 +5,7 @@
 @inject ISnackbar Snackbar
 @inject AppDbContext Db
 @inject DnsCheckService Dns
+@inject Microsoft.Extensions.Options.IOptions<AcsOptions> Acs
 
 <PageTitle>Settings</PageTitle>
 
@@ -19,11 +20,11 @@
 <MudPaper Class="pa-4 mb-4" Elevation="1">
     <MudText Typo="Typo.h6" GutterBottom="true">Sender</MudText>
     <MudStack Spacing="3">
-        <MudSelect T="string" @bind-Value="_settings.SenderAddress" Label="From address (default for new campaigns and tests)" Variant="Variant.Outlined"
+        <MudSelect T="string" @bind-Value="_settings.SenderAddress" Label="Default sender (new campaigns and tests)" Variant="Variant.Outlined" ToStringFunc="@(a => a is null ? "" : Acs.Value.Label(a))"
                    HelperText="One address per domain verified in Azure. To add a domain, see the README section 'Add a sending domain'.">
             @foreach (var a in _settings.AllowedSenders)
             {
-                <MudSelectItem T="string" Value="a">@a</MudSelectItem>
+                <MudSelectItem T="string" Value="a">@Acs.Value.Label(a)</MudSelectItem>
             }
         </MudSelect>
         <MudTextField @bind-Value="_settings.ReplyTo" Label="Reply-to" Variant="Variant.Outlined" Required="true"

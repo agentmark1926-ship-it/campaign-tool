@@ -7,7 +7,8 @@ public record OutgoingEmail(
     string? ReplyTo = null,
     string? PlainText = null,
     IReadOnlyDictionary<string, string>? Headers = null,
-    string? From = null);
+    string? From = null,
+    string? ToName = null);
 
 /// <summary>Transient = retry later (429, 5xx, timeout). Not transient and not success = the address was rejected.</summary>
 public record SendResult(bool Success, string? MessageId, bool Transient, string? Error)

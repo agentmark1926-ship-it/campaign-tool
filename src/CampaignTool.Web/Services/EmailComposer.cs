@@ -24,15 +24,19 @@ public static class EmailComposer
         {
             var text = TemplateRenderer.RenderText(campaign.Text, contact);
             return new OutgoingEmail(contact.Email, subject, TemplateRenderer.TextToHtml(text) + htmlFooter, campaign.ReplyTo,
-                PlainText: $"{text}\n\n--\n{mailingAddress}\nUnsubscribe: {unsubscribeUrl}", Headers: headers, From: campaign.FromEmail);
+                PlainText: $"{text}\n\n--\n{mailingAddress}\nUnsubscribe: {unsubscribeUrl}", Headers: headers, From: campaign.FromEmail, ToName: FullName(contact));
         }
 
         var html = TemplateRenderer.RenderHtml(campaign.Html, contact);
         var preheader = string.IsNullOrWhiteSpace(campaign.Preheader) ? "" :
             $"<div style=\"display:none;max-height:0;overflow:hidden;opacity:0\">{WebUtility.HtmlEncode(TemplateRenderer.RenderText(campaign.Preheader, contact))}</div>";
         return new OutgoingEmail(contact.Email, subject, InsertAfterBodyTag(html, preheader) is var withPre ? InsertBeforeBodyEnd(withPre, htmlFooter) : html,
-            campaign.ReplyTo, Headers: headers, From: campaign.FromEmail);
+            campaign.ReplyTo, Headers: headers, From: campaign.FromEmail, ToName: FullName(contact));
     }
+
+    /// <summary>"First Last" for the To line (Jane Smith &lt;jane@…&gt;), or null when the contact has no name.</summary>
+    public static string? FullName(Contact c) =>
+        string.Join(' ', new[] { c.FirstName, c.LastName }.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!.Trim())) is { Length: > 0 } n ? n : null;
 
     private static string InsertAfterBodyTag(string html, string snippet)
     {
