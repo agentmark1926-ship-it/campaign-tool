@@ -1,5 +1,16 @@
 # Blockers
 
+## Rebuild in a new Azure account (2026-09-25)
+
+The original Azure subscription and the admin@self-storagedevelopers.com mailbox are no longer available. The app, its database and the old sign-in are gone with them; the code and this runbook are intact.
+
+- [ ] Create a new Azure account (azure.microsoft.com, pay-as-you-go) with an email you control.
+- [ ] Azure portal → Cloud Shell (Bash) → paste:
+      `git clone -b claude/campaign-tool-setup-7gh7yp https://github.com/agentmark1926-ship-it/campaign-tool && bash campaign-tool/infra/bootstrap.sh`
+- [ ] Update the four GitHub values it prints; send Claude Code the three non-secret lines (appName, entraClientId, allowedUsers) so `main.bicepparam` matches.
+- [ ] Re-import the subscriber CSV; set Reply-to in Settings to a mailbox that works.
+
+
 Exact asks for the owner. Claude Code appends here; the owner clears items and replies "done".
 
 Claude Code runs in a cloud session that cannot reach Azure (`management.azure.com` is blocked), so the Azure steps below are yours. The easiest place to run them is **Azure Cloud Shell** (portal → the `>_` icon, Bash); it is already signed in and has `az` and Bicep.

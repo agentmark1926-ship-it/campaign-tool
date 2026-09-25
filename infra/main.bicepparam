@@ -8,9 +8,7 @@ param entraClientId = '96676af7-caee-4824-8e26-a5451355fa03'
 param allowedUsers = 'admin@self-storagedevelopers.com'
 // Sending domains. Add a domain to senderDomains and run the infra workflow to get its DNS records;
 // once the portal shows it Verified, add it to verifiedDomains and run the workflow again. It then appears in the app's From dropdown.
-param senderDomains = [
-  'self-storagedevelopers.com'
-]
+param senderDomains = []
 param verifiedDomains = []
 param senderDisplayName = 'Self Storage Developers'
 param mailingAddress = 'Self Storage Developers, 1101 Brickell Ave., 8th Fl, South Tower, Miami, FL 33131'
