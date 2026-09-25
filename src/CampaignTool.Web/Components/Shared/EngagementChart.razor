@@ -1,0 +1,20 @@
+<svg class="mid-chart" viewBox="0 0 700 250" preserveAspectRatio="none" role="img" aria-label="@Label">
+    @for (var i = 0; i < 4; i++)
+    {
+        var y = 20 + i * 70;
+        <line x1="0" y1="@y" x2="700" y2="@y" stroke="@(i == 3 ? "#243047" : "#1A2233")" vector-effect="non-scaling-stroke" />
+    }
+    <polygon points="@ChartMath.Area(Primary, 700, 250, 20, _max)" fill="@Midnight.Mint" fill-opacity="0.16" />
+    <polyline points="@ChartMath.Polyline(Primary, 700, 250, 20, _max)" fill="none" stroke="@Midnight.Mint" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+    <polygon points="@ChartMath.Area(Secondary, 700, 250, 20, _max)" fill="@Midnight.Violet" fill-opacity="0.28" />
+    <polyline points="@ChartMath.Polyline(Secondary, 700, 250, 20, _max)" fill="none" stroke="@Midnight.Violet" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<int> Primary { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<int> Secondary { get; set; } = [];
+    [Parameter] public string Label { get; set; } = "";
+
+    private int _max;
+    protected override void OnParametersSet() => _max = Math.Max(1, Primary.Concat(Secondary).DefaultIfEmpty(0).Max());
+}

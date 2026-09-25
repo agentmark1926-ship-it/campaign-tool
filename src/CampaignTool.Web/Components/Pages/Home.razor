@@ -4,62 +4,124 @@
 @inject AppDbContext Db
 @inject CampaignProgressNotifier Progress
 @inject SettingsService SettingsService
+@inject DashboardService Dashboard
+@inject CampaignService CampaignService
+@inject NavigationManager Nav
 
 <PageTitle>Dashboard</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Dashboard</MudText>
+<header class="mid-header">
+    <div>
+        <h1 class="mid-title">Dashboard</h1>
+        <div class="mid-sub">Last @DashboardService.Days days</div>
+    </div>
+    <div class="mid-header-actions">
+        @if (_settings is not null)
+        {
+            <span class="mid-status @(ReportsHealthy ? "ok" : "warn")" title="@_settings.SenderAddress">
+                <span class="dot"></span>@(ReportsHealthy ? "Sending from" : "No delivery reports yet ·") @_settings.SenderAddress
+            </span>
+        }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NewAsync">New campaign</MudButton>
+    </div>
+</header>
+
+@if (_s is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    return;
+}
 
 @foreach (var c in _sending)
 {
-    <MudPaper Class="pa-4 mb-4" Elevation="1">
-        <MudStack Row="true" AlignItems="AlignItems.Center">
-            <MudText Typo="Typo.h6">Sending now: <MudLink Href="@($"/campaigns/{c.Id}")">@c.Name</MudLink></MudText>
-            <CampaignStatusChip Status="c.Status" />
-        </MudStack>
-        <MudProgressLinear Color="Color.Primary" Value="@(c.Recipients == 0 ? 0 : 100.0 * (c.Sent + c.Failed) / c.Recipients)" Size="Size.Large" Class="my-2" />
-        <MudText Typo="Typo.caption">@c.Sent.ToString("N0") sent · @c.Delivered.ToString("N0") delivered · @c.Failed.ToString("N0") failed of @c.Recipients.ToString("N0")</MudText>
-    </MudPaper>
+    var done = c.Sent + c.Failed;
+    var pct = c.Recipients == 0 ? 0 : 100.0 * done / c.Recipients;
+    <a class="mid-card mid-live" href="@($"/campaigns/{c.Id}")">
+        <div class="mid-live-head">
+            <span class="mid-pill @(c.Status == CampaignStatus.Paused ? "amber" : "mint")"><span class="dot"></span>@(c.Status == CampaignStatus.Paused ? "Paused" : "Sending now")</span>
+            <span class="mid-live-name">@c.Name</span>
+            <span class="mid-live-count">@done.ToString("N0") / @c.Recipients.ToString("N0")</span>
+        </div>
+        <div class="mid-bar"><div style="width:@pct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)%"></div></div>
+        <div class="mid-live-foot">@c.Delivered.ToString("N0") delivered · @c.Bounced.ToString("N0") bounced · @c.Clicked.ToString("N0") clicked</div>
+    </a>
 }
 
-<MudGrid>
-    <MudItem xs="12" md="7">
-        <MudPaper Class="pa-4" Elevation="1">
-            <MudText Typo="Typo.h6" GutterBottom="true">Recent campaigns</MudText>
-            <MudSimpleTable Dense="true">
-                <thead><tr><th>Name</th><th>Status</th><th>Sent</th><th>Delivered</th><th>Clicked</th><th>Unsubscribed</th></tr></thead>
-                <tbody>
-                    @foreach (var c in _recent)
-                    {
-                        <tr>
-                            <td><MudLink Href="@(c.Status == CampaignStatus.Draft ? $"/campaigns/{c.Id}/edit" : $"/campaigns/{c.Id}")">@c.Name</MudLink></td>
-                            <td><CampaignStatusChip Status="c.Status" /></td>
-                            <td>@c.Sent.ToString("N0")</td><td>@c.Delivered.ToString("N0")</td><td>@c.Clicked.ToString("N0")</td><td>@c.Unsubscribed.ToString("N0")</td>
-                        </tr>
-                    }
-                    @if (_recent.Count == 0) { <tr><td colspan="6">No campaigns yet. <MudLink Href="/campaigns">Create one</MudLink>.</td></tr> }
-                </tbody>
-            </MudSimpleTable>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" md="5">
-        <MudPaper Class="pa-4" Elevation="1">
-            <MudText Typo="Typo.h6" GutterBottom="true">Contacts by status</MudText>
-            <MudSimpleTable Dense="true">
-                <tbody>
-                    @foreach (var status in Enum.GetValues<ContactStatus>())
-                    {
-                        <tr><td>@status</td><td>@(_byStatus.GetValueOrDefault(status).ToString("N0"))</td></tr>
-                    }
-                </tbody>
-            </MudSimpleTable>
-        </MudPaper>
-    </MudItem>
-</MudGrid>
+<section class="mid-kpis">
+    <div class="mid-card">
+        <div class="mid-kpi-head"><span>Emails sent</span><span class="mid-delta">@DashboardService.Change(_s.Sent.Total, _s.Sent.PreviousTotal)</span></div>
+        <div class="mid-kpi">@_s.Sent.Total.ToString("N0")</div>
+        <Sparkline Values="_s.Sent.Daily" Color="@Midnight.Mint" />
+    </div>
+    <div class="mid-card">
+        <div class="mid-kpi-head"><span>Delivered</span><span class="mid-muted">@_s.Delivered.Total.ToString("N0")</span></div>
+        <div class="mid-kpi">@Percent(_s.Delivered.Total, _s.Sent.Total)</div>
+        <Sparkline Values="_s.Delivered.Daily" Color="@Midnight.Violet" />
+    </div>
+    <div class="mid-card">
+        <div class="mid-kpi-head"><span>People who clicked</span><span class="mid-muted">@_s.Clicks.Total.ToString("N0") clicks</span></div>
+        <div class="mid-kpi">@_s.UniqueClickers.ToString("N0")</div>
+        <Sparkline Values="_s.Clicks.Daily" Color="@Midnight.Blue" />
+    </div>
+    <div class="mid-card">
+        <div class="mid-kpi-head"><span>Bounces</span><span class="mid-delta @(BounceRate > 0.02 ? "bad" : "")">@Percent(_s.Bounced.Total, _s.Sent.Total)</span></div>
+        <div class="mid-kpi">@_s.Bounced.Total.ToString("N0")</div>
+        <Sparkline Values="_s.Bounced.Daily" Color="@Midnight.Orange" />
+    </div>
+</section>
+
+<section class="mid-split">
+    <div class="mid-card">
+        <div class="mid-card-head">
+            <h2>Engagement over time</h2>
+            <span class="mid-legend"><span class="sw" style="background:@Midnight.Mint"></span>Delivered <span class="sw" style="background:@Midnight.Violet"></span>Clicks</span>
+        </div>
+        @if (_s.Delivered.Total + _s.Clicks.Total == 0)
+        {
+            <div class="mid-empty">Delivery and click reports will chart here after your first campaign.</div>
+        }
+        else
+        {
+            <EngagementChart Primary="_s.Delivered.Daily" Secondary="_s.Clicks.Daily" Label="Emails delivered and clicks per day over the last 30 days" />
+            <div class="mid-axis"><span>@TimeFormat.Local(_s.FromUtc, _tz, "MMM d")</span><span>Today</span></div>
+        }
+    </div>
+
+    <div class="mid-card mid-campaigns">
+        <div class="mid-card-head"><h2>Campaigns</h2><a href="/campaigns">View all</a></div>
+        @foreach (var c in _recent)
+        {
+            <a class="mid-row" href="@Link(c)">
+                <span class="dot" style="background:@DotColor(c.Status)"></span>
+                <span class="mid-row-main">
+                    <span class="mid-row-title">@c.Name</span>
+                    <span class="mid-row-sub">@Describe(c)</span>
+                </span>
+                <span class="mid-row-action">@Action(c)</span>
+            </a>
+        }
+        @if (_recent.Count == 0)
+        {
+            <div class="mid-empty">No campaigns yet. <a href="/campaigns">Create one</a>.</div>
+        }
+        <div class="mid-quota">
+            <div class="mid-quota-head"><span>Sent in the last hour</span><span>@_s.SentLastHour.ToString("N0") / @_settings!.MaxPerHour.ToString("N0")</span></div>
+            <div class="mid-bar thin"><div style="width:@QuotaPercent%"></div></div>
+            <div class="mid-quota-head"><span>Subscribed contacts</span><span>@_s.Subscribed.ToString("N0")</span></div>
+        </div>
+    </div>
+</section>
 
 @code {
+    private DashboardService.Summary? _s;
+    private EffectiveSettings? _settings;
+    private string _tz = "UTC";
     private List<Campaign> _sending = [], _recent = [];
-    private Dictionary<ContactStatus, int> _byStatus = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    private bool ReportsHealthy => _s?.LastReportUtc is not null;
+    private double BounceRate => _s is null || _s.Sent.Total == 0 ? 0 : (double)_s.Bounced.Total / _s.Sent.Total;
+    private string QuotaPercent => Math.Min(100, 100.0 * (_s?.SentLastHour ?? 0) / Math.Max(1, _settings?.MaxPerHour ?? 1)).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
 
     protected override async Task OnInitializedAsync()
     {
@@ -74,12 +136,48 @@
         if (!await _gate.WaitAsync(0)) return;
         try
         {
+            _settings = await SettingsService.GetAsync();
+            _tz = _settings.TimeZone;
             _sending = await Db.Campaigns.AsNoTracking().Where(c => c.Status == CampaignStatus.Sending || c.Status == CampaignStatus.Paused).ToListAsync();
             _recent = await Db.Campaigns.AsNoTracking().OrderByDescending(c => c.Id).Take(5).ToListAsync();
-            _byStatus = await Db.Contacts.GroupBy(c => c.Status).Select(g => new { g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.Count);
+            _s = await Dashboard.GetAsync();
         }
         finally { _gate.Release(); }
     }
+
+    private async Task NewAsync() => Nav.NavigateTo($"/campaigns/{(await CampaignService.CreateAsync()).Id}/edit");
+
+    private static string Percent(int part, int whole) => whole == 0 ? "—" : $"{Math.Min(100, 100.0 * part / whole):0.0}%";
+
+    private static string Link(Campaign c) => c.Status == CampaignStatus.Draft ? $"/campaigns/{c.Id}/edit"
+        : c.Status is CampaignStatus.Completed or CampaignStatus.Cancelled ? $"/campaigns/{c.Id}/results" : $"/campaigns/{c.Id}";
+
+    private static string Action(Campaign c) => c.Status switch
+    {
+        CampaignStatus.Draft or CampaignStatus.Scheduled => "Edit",
+        CampaignStatus.Sending or CampaignStatus.Paused => "Live",
+        _ => "Results",
+    };
+
+    private static string DotColor(CampaignStatus s) => s switch
+    {
+        CampaignStatus.Sending => Midnight.Amber,
+        CampaignStatus.Paused => Midnight.Orange,
+        CampaignStatus.Scheduled => Midnight.Blue,
+        CampaignStatus.Completed => Midnight.Mint,
+        CampaignStatus.Cancelled => Midnight.Red,
+        _ => "#5B6678",
+    };
+
+    private string Describe(Campaign c) => c.Status switch
+    {
+        CampaignStatus.Draft => "Draft",
+        CampaignStatus.Scheduled => $"Scheduled · {TimeFormat.Local(c.ScheduledAtUtc, _tz, "MMM d, h:mm tt")}",
+        CampaignStatus.Sending => $"Sending · {c.Sent + c.Failed:N0} / {c.Recipients:N0}",
+        CampaignStatus.Paused => $"Paused · {c.Sent + c.Failed:N0} / {c.Recipients:N0}",
+        CampaignStatus.Completed => $"Completed · {Percent(c.Delivered, c.Sent)} delivered",
+        _ => "Cancelled",
+    };
 
     public void Dispose() => Progress.Changed -= OnProgress;
 }

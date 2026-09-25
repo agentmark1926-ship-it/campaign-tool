@@ -172,6 +172,16 @@ The owner asked to switch sending domains without Azure work each time (they own
 
 Tests (2 new, 97 total): switching the Settings sender to a linked domain (and rejecting an unknown one) with the test email sent from it; a campaign sends from the address picked on its Setup tab and rejects one not in Azure.
 
+## Midnight redesign
+
+The owner picked the dark "Midnight" direction from the design canvas (https://claude.ai/artifact/JdHbiepsHZ5yC8jA2FkiCM).
+
+- `Components/Shared/Midnight.cs`: MudBlazor dark palette (near-black ground, mint primary, violet/blue/amber accents), Space Grotesk headings over Manrope body; `wwwroot/app.css` for layout, nav and dashboard styles. Applies to every page.
+- New sidebar (brand, outlined icons, mint active marker); app bar only on small screens.
+- Dashboard rebuilt: sender/report status pill, live "sending now" cards, four KPI cards for the last 30 days with sparklines (sent with change vs the previous 30 days, delivered %, people who clicked, bounces), a delivered-vs-clicks area chart, recent campaigns with status dots and links, sends in the last hour against the hourly limit, subscribed count. Figures from the new `DashboardService`; charts are plain SVG (`ChartMath`, `Sparkline`, `EngagementChart`).
+
+Tests (3 new, 100 total): dashboard totals, daily series, previous-period and unique-clicker counts; the page renders for the signed-in owner; chart coordinates.
+
 ## MVP status
 
 All seven phases are built, tested (95 tests) and deployed. The spec's MVP definition also needs one real campaign to the day-2 warm-up slice with bounces under 2%, which waits on the owner items in BLOCKERS.md: seed test, subscriber import, custom (sub)domain, ACS quota.

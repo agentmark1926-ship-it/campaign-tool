@@ -62,6 +62,7 @@ builder.Services.AddScoped<RetentionService>();
 builder.Services.AddScoped<AlertMonitor>();
 builder.Services.AddSingleton<DnsClient.ILookupClient>(new DnsClient.LookupClient());
 builder.Services.AddScoped<DnsCheckService>();
+builder.Services.AddScoped<DashboardService>();
 builder.Services.AddHostedService<RetentionWorker>();
 
 builder.Services.AddRazorComponents()

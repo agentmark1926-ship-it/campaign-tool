@@ -1,0 +1,11 @@
+@* A small trend line for a KPI card; decorative, the number beside it carries the meaning. *@
+<svg class="mid-spark" viewBox="0 0 240 36" preserveAspectRatio="none" aria-hidden="true">
+    <polyline fill="none" stroke="@Color" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="@Points" />
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<int> Values { get; set; } = [];
+    [Parameter] public string Color { get; set; } = Midnight.Mint;
+
+    private string Points => ChartMath.Polyline(Values, 240, 36, 3);
+}
