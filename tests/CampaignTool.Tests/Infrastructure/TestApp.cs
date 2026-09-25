@@ -58,9 +58,22 @@ public class TestApp : WebApplicationFactory<Program>
 
     public override async ValueTask DisposeAsync()
     {
-        await using (var db = NewDbContext())
-            await db.Database.EnsureDeletedAsync();
+        // Stop the app (and its workers) first, then drop the database. Test classes run in parallel and create/drop
+        // databases at the same time, which SQL Server occasionally resolves with a deadlock (error 1205): retry those.
         await base.DisposeAsync();
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await using var db = NewDbContext();
+                await db.Database.EnsureDeletedAsync();
+                break;
+            }
+            catch (Exception ex) when (attempt < 5 && (ex as SqlException ?? ex.InnerException as SqlException)?.Number == 1205)
+            {
+                await Task.Delay(200 * attempt);
+            }
+        }
         GC.SuppressFinalize(this);
     }
 }
